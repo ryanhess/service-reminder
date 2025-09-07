@@ -23,6 +23,7 @@ createVehiclesTableQuery = """
     CREATE TABLE IF NOT EXISTS vehicles (
         vehicleID INT AUTO_INCREMENT NOT NULL,
         userID INT NOT NULL,
+        vehNickname VARCHAR(255),
         make VARCHAR(255),
         model VARCHAR(255),
         year VARCHAR(4),
@@ -52,16 +53,16 @@ sampleUsers = [
 ]
 
 sampleVehiclesStatement = """
-    INSERT INTO vehicles (userID, make, model, year)
-    VALUES ( %s, %s, %s, %s )
+    INSERT INTO vehicles (userID, vehNickname, make, model, year, serviceSchedule)
+    VALUES ( %s, %s, %s, %s, %s, %s )
 """
 sampleVehicles = [
-    ("1", "Lexus", "Rx350", "2015"),
-    ("1", "Toyota", "Rav4", "2011"),
-    ("2", "Subaru", "Crosstrek", "2019"),
-    ("3", "Subaru", "Outback", "2025"),
-    ("4", "Volkwagen", "Jetta TDI Sportwagen", "2014"),
-    ("4", "Subaru", "Forester", "2005")
+    ("1", "Moose", "Lexus", "Rx350", "2015", '{ "Change Eng. Oil and Filter" : "5000", "Rotate and Inspect Tires" : "5000"}'),
+    ("1", "Yoda", "Toyota", "Rav4", "2011", "{}"),
+    ("2", "", "Subaru", "Crosstrek", "2019", "{}"),
+    ("3", "", "Subaru", "Outback", "2025", "{}"),
+    ("4", "Grandma", "Volkwagen", "Jetta TDI Sportwagen", "2014", "{}"),
+    ("4", "Grandpa", "Subaru", "Forester", "2005", '{}')
 ]
 
 #add values to tables
