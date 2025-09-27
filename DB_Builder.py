@@ -57,8 +57,8 @@ def createTables(connection, cursor):
             vehicleID INT NOT NULL,
             userID INT NOT NULL,
             description LONGTEXT NOT NULL,
-            serviceInterval INT NOT NULL,
-            dueAtMiles DECIMAL(8,1),
+            serviceInterval INT NOT NULL CHECK (serviceInterval > 0),
+            dueAtMiles DECIMAL(8,1) CHECK (dueAtMiles >= 0),
             servDueFlag BOOLEAN DEFAULT FALSE,
             PRIMARY KEY (itemID),
             FOREIGN KEY (vehicleID) REFERENCES vehicles(vehicleID),
@@ -112,7 +112,7 @@ def loadSampleData(connection, cursor):
         (2, 1, "Replace Brake Fluid", 10000, 126000),
         (3, 2, "Change tires", 1, 0),
         (4, 3, "change oil", 1, 6000),
-        (5, 4, "flush brakes", 0, 100),
+        (5, 4, "flush brakes", 2, 100),
         (6, 4, "set alignmnet", 10, 1029000)
     ]
     cursor.executemany(sampleServSchedStmt, sampleServiceSched)

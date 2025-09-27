@@ -89,6 +89,9 @@ def promptUserForOneVeh(usrID=0):
 # this should check that the new ODO reading is greater than the previous ODO reading. Should reply to the user confirming the reading or prompting again if the reading contains an error.
 # Calculate and store a new average miles per day given the prev ODO reading and the days since the last ODO reading.
 def updateODO(vehID=0, odo=0):
+    if odo is None:
+        odo = 0
+
     # alter the given vehicle record with a new odo reading. Also set the datelastodo to today.
     res = querySQL(f"""
         SELECT miles FROM vehicles WHERE vehicleID = {vehID}
@@ -100,7 +103,10 @@ def updateODO(vehID=0, odo=0):
 
     curMiles = res[0][0]
 
-    if curMiles > odo:
+    if not odo:
+        odo = 0
+
+    if curMiles and curMiles > odo:
         raise ValueError(
             "cannot update the mileage with a lesser number than the current value")
 
@@ -114,7 +120,11 @@ def updateODO(vehID=0, odo=0):
 # def:
 # update the records indicating a service was done at a given miles
 # should remove the service due flag, update the mileage deadline, and update the ODO for the vehicle only if this ODO is greater than the ODO stored for the vehicle.
-def updateServiceDone(itemID=0, odo=0):
+def updateServiceDone(itemID=0, servODO=0):
+    if not servODO:  # if servODO is None
+        servODO = 0
+
+    # check for not the right type
     # update the miles of the parent vehicle, only if the new ODO is greater than the previous ODO.
     res = querySQL(f"""
         SELECT vehicleID, miles FROM vehicles
@@ -127,60 +137,73 @@ def updateServiceDone(itemID=0, odo=0):
     # yes, I know updateODO checks for this and throws an exception,
     # but this is not an error. Dont want to trip an exception.
     vehID, parentMiles = res[0]
-    if odo > parentMiles:
+    if not parentMiles or servODO > parentMiles:
         # update the miles of the parent vehicle.
-        updateODO(vehID, odo)
+        updateODO(vehID, servODO)
 
     # remove the service flag and update the dueAtMiles.
     querySQL(f"""
         UPDATE serviceSchedule
-        SET dueAtMiles = {odo} + serviceInterval, servDueFlag = FALSE
+        SET dueAtMiles = {servODO} + serviceInterval, servDueFlag = FALSE
         WHERE itemID = {itemID}
     """)
 
 
 # def:
-# check the database for service that is due and notify the relevant users. The caller of this function sets the frequency of the reminders.
+# check the database for service that is due and notify the relevant user. The caller of this function sets the frequency of the reminders.
+def notifyOneService(serviceItemID):
+    res = querySQL(stmt=f"""
+        SELECT userID, vehicleID, description, dueAtMiles FROM serviceSchedule
+        WHERE itemID = {serviceItemID}
+    """)
+    if res == []:
+        raise NotInDatabaseError(
+            f"Service item {serviceItemID} was not found in the database.")
+    usrID, vehID, desc, dueAt = res[0]
+
+    res = querySQL(stmt=f"""
+        SELECT username, phone FROM users
+        WHERE userID = {usrID}
+    """)
+    username, phone = res[0]
+
+    res = querySQL(stmt=f"""
+        SELECT vehNickname, year, make, model FROM vehicles
+        WHERE vehicleID = {vehID}
+    """)
+
+    nick, year, make, model = res[0]
+
+    msg = f"""
+        {username}, {nick if nick != None else ' your ' + str(year) + ' ' + str(make) + ' ' + str(model)}
+        is due for item: "{desc}" at {dueAt} miles.
+    """
+
+    return phone, msg
+
+
+# def:
+# check the DB for service that is due and call notifyOneService for each item due.
+# Send the returned message to the returned phone number by calling sendSMS
 def notifyAllService():
     # query a list of flagged service items from the database
     query = """
         SELECT itemID FROM serviceSchedule
-        WHERE serviceSchedule.servDueFlag = TRUE
+        WHERE servDueFlag = TRUE
     """
     flaggedItems = querySQL(stmt=query)
 
     # get the ymm and nick of the vehicle in the item
     # get the username and phone number of the user
-    # {username}, your {ymm}/{nick} is due for {item} in {x} miles.
+    # {username}, your {ymm}/{nick} is due for {item} at {x} miles.
     for item in flaggedItems:
-        res = querySQL(stmt=f"""
-            SELECT description, dueAtMiles FROM serviceSchedule
-            WHERE itemID = {item[0]}
-        """)
-        (desc, dueAt) = res[0]
-
-        res = querySQL(stmt=f"""
-            SELECT username, phone FROM users
-            WHERE userID = (SELECT userID FROM serviceSchedule WHERE itemID = {item[0]})
-        """)
-        (username, phone) = res[0]
-
-        res = querySQL(stmt=f"""
-            SELECT vehNickname, year, make, model, estMiles FROM vehicles
-            WHERE vehicleID = (SELECT vehicleID FROM serviceSchedule WHERE itemID = {item[0]})
-        """)
-
-        (nick, year, make, model, estMiles) = res[0]
-
-        msg = f"""
-            {username}, {nick if nick != None else ' your ' + str(year) + ' ' + str(make) + ' ' + str(model)}
-            is due for item: "{desc}" in {dueAt - Decimal(estMiles)} miles.
-        """
+        phone, msg = notifyOneService(item[0])
 
         # send the message.
         sendSMS(recip=phone, msg=msg)
 
 
+# def:
 # SHOULD BE CALLED AT LEAST EVERY DAY or the TODAY global will not be updated.
 # check on the vehicle database, update values, and call for sending messages to the user. This should happen at a regular interval determined by the caller.
 def dailyMaint():

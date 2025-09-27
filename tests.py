@@ -21,7 +21,7 @@ def buildSampleDB():
 
 
 def buildBlankDB():
-    with DBConnection as db:
+    with DBConnection() as db:
         con = db.connection
         curs = db.cursor
         DB_Builder.dropAllTables(con, curs)
@@ -45,20 +45,20 @@ def test_querySQL():
     return
 
 
+# promptUserForOneVeh does:
+#   -retrieves one row from the vehicles table that belongs to the given user,
+#    requires a ODO reading, and is the most out of date vehicle with such requirement.
+#   -queries the users row for that user ID.
+#   -extracts the user's phone number and composes a message out of all the info.
+#   -returns the message and phone number.
+#
+# edge/other cases to test:
+#   -function returns expected result for some case.
+#   -usrID is not in the database.
+#       -this is not a critical error and should not crash the server, but should make a console message.
+#       -test the return values.
+#   -the given user has more than one veh with the same dateLastODO. Function should execute and return one of the two possible results.
 def test_promptUserForOneVeh():
-    # promptUserForOneVeh does:
-    #   -retrieves one row from the vehicles table that belongs to the given user,
-    #    requires a ODO reading, and is the most out of date vehicle with such requirement.
-    #   -queries the users row for that user ID.
-    #   -extracts the user's phone number and composes a message out of all the info.
-    #   -returns the message and phone number.
-    #
-    # edge/other cases to test:
-    #   -function returns expected result for some case.
-    #   -usrID is not in the database.
-    #       -this is not a critical error and should not crash the server, but should make a console message.
-    #       -test the return values.
-    #   -the given user has more than one veh with the same dateLastODO. Function should execute and return one of the two possible results.
     buildSampleDB()  # rebuild the database with some sample data.
     # test user 4. should return data "hey Soraya," "Grandma" stuff stuff.
     phone, msg = main.promptUserForOneVeh(usrID=4)
@@ -84,12 +84,11 @@ def test_promptUserForOneVeh():
     assert "ryanhess" in msg and (("Moose" in msg) != ("Yoda" in msg))
 
 
+# needs to test that the function performs the expected result which is:
+#   vehicleID's ODO value is updated to the input value
+# raises NotInDatabaseError when vehicle is not in the database
+# raises ValueError if the inputted miles are less than the ODO value on record.
 def test_updateODO():
-    # needs to test that the function performs the expected result which is:
-    #   vehicleID's ODO value is updated to the input value
-    # raises NotInDatabaseError when vehicle is not in the database
-    # raises ValueError if the inputted miles are less than the ODO value on record.
-
     buildSampleDB()
 
     def runTest(id, odo):
@@ -117,18 +116,20 @@ def test_updateODO():
         runTest(id=1, odo=1)
 
 
+# check that the service-due-flag is now false.
+# check that the mileage deadline is now extended by the mileage interval plus the odo value
+# check that when odo is less than parent miles, the parent miles is not updated.
+# check proper NotInDatabaseError.
+# this function should return True if parent miles (after db operations) is greater than the odo passed.
+# in oher words, the DB integrity is preserved and the odo values is rejected.
 def test_updateServiceDone():
-    # check that the service-due-flag is now false.
-    # check that the mileage deadline is now extended by the mileage interval plus the odo value
-    # check that when odo is less than parent miles, the parent miles is not updated.
-    # check proper NotInDatabaseError.
     def runTest(id, odo):
         with DBConnection() as db:
             curs = db.cursor
 
             # Pass any raised exceptions out to the caller.
             try:
-                main.updateServiceDone(itemID=id, odo=odo)
+                main.updateServiceDone(itemID=id, servODO=odo)
             except:
                 raise
 
@@ -140,34 +141,28 @@ def test_updateServiceDone():
             res = curs.fetchall()
             parentMiles = float(res[0][0])
             assert not flag
-            assert float(dueAt) == odo + float(interval)
+            assert float(dueAt) == round(odo, 1) + float(interval)
 
             # should normally be true, should be false when odo is less than original parentMiles
-            return parentMiles < odo
+            return round(odo, 1) == parentMiles
 
     def populateDB():
-        # we need a sample database with a vehicle and a few service items with true flags and one with a false flag.
-        with DBConnection as db:
+        # we need a sample database with a vehicle and a few service items with true flags and some with a false flag.
+        with DBConnection() as db:
             cur = db.cursor
 
-            sampleServSchedStmt = """
-                INSERT INTO serviceSchedule (vehicleID, userID, description, serviceInterval, dueAtMiles, servDueFlag)
-                VALUES ( %s, %s, %s, %s, %s )
+            sampleUsersStatement = """
+                INSERT INTO users
+                (username, phone)
+                VALUES ( %s, %s )
             """
-
-            sampleServiceSched = [
-                (1, 1, "Change Eng. Oil and Filter", 5000, 11030, True),
-                (1, 1, "Rotate and Inspect Tires", 5000, 110300, True),
-                (1, 1, "Re-torque drive shaft bolts", 15000, 120000, True),
-                (2, 1, "Change Eng. Oil and Filter", 5000, 130000, True),
-                (2, 1, "Replace Brake Fluid", 10000, 126000, True),
-                (3, 2, "Change tires", 1, 0, False),
-                (4, 3, "change oil", 1, 6000, False),
-                (5, 4, "flush brakes", 0, 100, True),
-                (6, 4, "set alignmnet", 10, 1029000, False)
+            sampleUsers = [
+                ("ryanhess", "+18777804236"),
+                ("stephenhess", "+16469576453"),
+                ("brianhess", "+19177978174"),
+                ("sorayahess", "+19178487133")
             ]
-
-            cur.executemany(sampleServSchedStmt, sampleServiceSched)
+            cur.executemany(sampleUsersStatement, sampleUsers)
 
             sampleVehiclesStatement = """
                 INSERT INTO vehicles (userID, vehNickname, make, model, year, miles, dateLastODO, milesPerDay)
@@ -188,14 +183,107 @@ def test_updateServiceDone():
             ]
             cur.executemany(sampleVehiclesStatement, sampleVehicles)
 
+            sampleServSchedStmt = """
+                INSERT INTO serviceSchedule (vehicleID, userID, description, serviceInterval, dueAtMiles, servDueFlag)
+                VALUES ( %s, %s, %s, %s, %s, %s )
+            """
+
+            sampleServiceSched = [
+                (1, 1, "Change Eng. Oil and Filter", 5000, 11030, True),
+                (1, 1, "Rotate and Inspect Tires", 5000, 110300, True),
+                (1, 1, "Re-torque drive shaft bolts", 15000, 120000, True),
+                (2, 1, "Change Eng. Oil and Filter", 5000, 130000, True),
+                (2, 1, "Replace Brake Fluid", 10000, 126000, True),
+                (3, 2, "Change tires", 1, 0, False),
+                (4, 3, "change oil", 1, 6000, False),
+                (5, 4, "flush brakes", 2, 100, True),
+                (6, 4, "set alignmnet", 10, 1029000, False)
+            ]
+
+            cur.executemany(sampleServSchedStmt, sampleServiceSched)
+
     buildBlankDB()
     populateDB()
 
     # check for not in database
     with raises(main.NotInDatabaseError):
         runTest(0, 0)
+    with raises(main.NotInDatabaseError):
+        runTest(9999, 0)
 
-    # check if a mileage from the past is introduced here it will not be the mileae fr teh vehcile.
+    # Check that the parent miles are NOT updated when
+    # odo is less than the original parent miles.
+    assert not runTest(1, 11031)
+    assert not runTest(2, 100000)
 
     # check the rest of the requirements with a few service items.
-    runTest()
+    # (runTest returns true when the parent miles is updated to the rounded odo)
+    assert runTest(3, 120000.126)
+    assert runTest(4, 125921.00001)
+    assert runTest(5, 140000.2)
+    assert runTest(6, 100)
+    assert runTest(7, 6000)
+
+
+# should return the string of the message appropriate for the given item.
+# independently find the data that should be in the message and compare this to the message.
+# should return a "not in database error" if the item is not found.
+def test_notifyOneService():
+    def runTest(id):
+        with DBConnection() as db:
+            curs = db.cursor
+
+            # Pass any raised exceptions out to the caller.
+            try:
+                returnedPhone, returnedMsg = main.notifyOneService(id)
+            except:
+                raise
+
+            curs.execute(f"""
+                SELECT userID, vehicleID, description, dueAtMiles FROM serviceSchedule
+                WHERE itemID = {id}
+            """)
+            res = curs.fetchall()
+            usrID, vehID, desc, dueAt = res[0]
+
+            curs.execute(f"""
+                SELECT username, phone FROM users
+                WHERE userID = {usrID}
+            """)
+            res = curs.fetchall()
+            username, phone = res[0]
+
+            curs.execute(f"""
+                SELECT vehNickname, year, make, model FROM vehicles
+                WHERE vehicleID = {vehID}
+            """)
+            res = curs.fetchall()
+            nick, year, make, model = res[0]
+
+            assert phone == returnedPhone
+            assert username in returnedMsg
+            if not nick:
+                assert str(
+                    year) in returnedMsg and make in returnedMsg and model in returnedMsg
+            else:
+                assert nick in returnedMsg
+            assert desc in returnedMsg
+
+    buildSampleDB()
+
+    with raises(main.NotInDatabaseError):
+        runTest(0)
+
+    # just get all the service items in the sample schedule and test them all.
+    with DBConnection() as db:
+        c = db.cursor
+        c.execute("""
+            SELECT itemID FROM serviceSchedule
+        """)
+        ids = c.fetchall()
+
+    for id in ids:
+        runTest(id[0])
+
+
+# test_notifyOneService()
