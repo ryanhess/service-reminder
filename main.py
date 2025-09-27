@@ -11,9 +11,15 @@ ODOPROMPTINTERVAL = 7  # the number of days to wait before prompting a regular O
 
 app = Flask(__name__)
 
-
 # global variable. this will be updated every day during the daily maintenance routine
 today = date.today().strftime('%Y-%m-%d')
+
+### custom exceptions ###
+
+
+class NotInDatabaseError(Exception):
+    # exception thrown when a given row is not found in DB
+    pass
 
 
 # function to execute SQL query in a safe container, opening and closing the connection and checking for errors along the way.
@@ -56,26 +62,26 @@ def sendSMS(recip="", msg=""):
 # for given user id, prompt the user for only the most out of date veh odo
 # return
 def promptUserForOneVeh(usrID=0):
-    vehQuery = f'''
-        SELECT vehNickname, make, model, year FROM vehicles WHERE userID = {usrID} ORDER BY datelastODO ASC LIMIT 1
-    '''
-    queryResult = querySQL(stmt=vehQuery)
-    (nick, make, modl, year) = queryResult[0]
+    try:
+        queryResult = querySQL(stmt=f'''
+            SELECT vehNickname, make, model, year FROM vehicles WHERE userID = {usrID} ORDER BY datelastODO ASC LIMIT 1
+        ''')
+        (nick, make, modl, year) = queryResult[0]
+    except IndexError:
+        raise NotInDatabaseError(
+            "called promptUserForOneVeh with a userID not in the database")
 
     # we need the user name and the phone number from the user.
-    userQuery = f'''
+    queryResult = querySQL(stmt=f'''
         SELECT username, phone FROM users
         WHERE userID = {usrID}
-    '''
-    queryResult = querySQL(stmt=userQuery)
+    ''')
     (username, phone) = queryResult[0]
 
-    msg = f"""
-        Hey {username}, Service Reminders here. Please reply with an odometer reading for
-        {nick if nick != None else ' your ' + str(year) + ' ' + make + ' ' + modl}.
-    """
-    print(msg)
-    sendSMS(recip=phone, msg=msg)
+    msg = f"""Hey {username}, Service Reminders here. Please reply with an odometer reading for {
+        nick if nick != None else ' your ' + str(year) + ' ' + make + ' ' + modl}."""
+
+    return phone, msg
 
 
 # def:
@@ -89,10 +95,13 @@ def updateODO(vehID=0, odo=0):
     """)
 
     if res == []:
-        raise Exception("vehicle with this ID does not exist in the database.")
+        raise NotInDatabaseError(
+            "vehicle with this ID does not exist in the database.")
+
     curMiles = res[0][0]
+
     if curMiles > odo:
-        raise Exception(
+        raise ValueError(
             "cannot update the mileage with a lesser number than the current value")
 
     querySQL(f"""
@@ -101,24 +110,23 @@ def updateODO(vehID=0, odo=0):
         WHERE vehicleID = {vehID}
     """)
 
-    return 0
-
 
 # def:
 # update the records indicating a service was done at a given miles
+# should remove the service due flag, update the mileage deadline, and update the ODO for the vehicle only if this ODO is greater than the ODO stored for the vehicle.
 def updateServiceDone(itemID=0, odo=0):
-    # should remove the service due flag, update the mileage deadline, and update the ODO for the vehicle only if this ODO is greater than the ODO stored for the vehicle.
-
     # update the miles of the parent vehicle, only if the new ODO is greater than the previous ODO.
     res = querySQL(f"""
         SELECT vehicleID, miles FROM vehicles
         WHERE vehicles.vehicleID = (SELECT vehicleID FROM serviceSchedule WHERE serviceSchedule.itemID = {itemID})
     """)
     if res == []:
-        raise Exception(
+        raise NotInDatabaseError(
             f"serviceSchedule record for itemID = {itemID} does not exist.")
 
-    (vehID, parentMiles) = res[0]
+    # yes, I know updateODO checks for this and throws an exception,
+    # but this is not an error. Dont want to trip an exception.
+    vehID, parentMiles = res[0]
     if odo > parentMiles:
         # update the miles of the parent vehicle.
         updateODO(vehID, odo)
@@ -188,7 +196,8 @@ def dailyMaint():
     queryResult = querySQL(stmt=query)
     # sort the list by userID, then by dateLastODO oldest to newest. This ensures that the highest priority is to query the most out of date vehicle.
     for usr in queryResult:
-        promptUserForOneVeh(usr[0])
+        phone, msg = promptUserForOneVeh(usr[0])
+        sendSMS(recip=phone, msg=msg)
 
     # calculate a new mileage estimate for all vehicles.
     querySQL(stmt=f"""
@@ -269,9 +278,14 @@ def serveHome():
 
 
 if __name__ == '__main__':
-    # promptUserForOneVeh(usrID=1)
+    # res1 = promptUserForOneVeh(usrID=0)
+    try:
+        updateODO(0, 0)
+    except:
+        raise
+
     from sys import argv
-    app.run(port=3000)
+    # app.run(port=3000)
     # dailyMaint()
     # updateServiceDone(1, 110200.1)
     # if len(argv) == 2:
