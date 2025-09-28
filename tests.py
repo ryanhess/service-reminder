@@ -5,7 +5,9 @@ from mysql.connector import connect, Error
 from pytest import fixture, raises
 from decimal import Decimal
 import pytest_mock
-from datetime import date
+from datetime import date, timedelta
+from twilio.twiml.messaging_response import MessagingResponse
+from contextlib import nullcontext as does_not_raise
 
 
 @fixture
@@ -17,6 +19,24 @@ def client():
 
 
 ### HELPERS ###
+
+# pretty much a dead ringer for querySQL except it uses my context class DBConnection
+# and it does away with the many jazz. fix this multiple mess later.
+def querySQLinTest(stmt=""):
+    try:
+        with DBConnection() as db:
+            connection = db.connection
+            c1 = db.cursor
+            c1.execute(stmt)
+            result = c1.fetchall()
+            connection.commit()
+
+            return result
+
+    except Error as e:
+        raise Exception(e)
+
+
 def buildSampleDB():
     DB_Builder.newDBWithData()
 
@@ -95,7 +115,7 @@ def test_updateODO(mocker):
     sampleToday = date(2025, 9, 13)  # artificially set today
     mocker.patch('main.getDateToday', return_value=sampleToday)
 
-    def runTest(id, odo):
+    def runTest(id, testODO):
         with DBConnection() as db:
             curs = db.cursor
 
@@ -108,44 +128,51 @@ def test_updateODO(mocker):
 
         # pass out any exceptions and execute the function
         try:
-            main.updateODO(vehID=id, newODO=odo)
+            main.updateODO(vehID=id, newODO=testODO)
         except:
             raise
 
         # now unpack with indexing since we made it here.
         oldODO, oldDateLast, oldMilesPerDay = oldData[0]
 
-        if not oldODO or not oldDateLast or not oldMilesPerDay:
-            oldODO = 0
-            oldDateLast = sampleToday
-            oldMilesPerDay = main.INITIALMILESPERDAY
-
         with DBConnection() as db:
             curs = db.cursor
             curs.execute(
                 f"SELECT miles, dateLastODO, milesPerDay FROM vehicles WHERE vehicleID = {id}")
             newODO, newDateLast, newMilesPerDay = curs.fetchall()[0]
+            newODO = float(newODO)
 
-        daydiff = (sampleToday-oldDateLast).days
-        if daydiff == 0:
-            testMilesPerDay = oldMilesPerDay
+        # In updateODO we want to detect if odo is None. We need to make a sepcial case
+        # and take a sepcial default action that doesn't blow up the mileage estimates.
+        # In that case, let miles per day be 0 to prevent unneccesary service reminders
+        # until there is a regular cadence of updates.
+        # dailyMaint will check if there is no previous odo reading as well.
+        if not oldODO or not oldDateLast or not oldMilesPerDay:
+            testMilesPerDay = 0  # updateODO should be setting the rate to 0
         else:
-            testMilesPerDay = \
-                (float(newODO) - oldODO) / daydiff
+            daydiff = (sampleToday-oldDateLast).days
+            if daydiff == 0:
+                testMilesPerDay = oldMilesPerDay
+            else:
+                testMilesPerDay = \
+                    (newODO - float(oldODO)) / daydiff
 
-        assert float(newODO) == odo
+        assert newODO == round(testODO, 1)
         assert newDateLast == sampleToday
-        assert newMilesPerDay == testMilesPerDay
+        assert round(newMilesPerDay, 1) == round(testMilesPerDay, 1)
 
     runTest(1, 110000.1)
     runTest(2, 1030001)
-    runTest(4, 1000)
+    runTest(3, 1000000.93)
+    runTest(4, 1001)
+    runTest(5, 200000.19001)
+    runTest(6, 300000)
 
     with raises(main.NotInDatabaseError):
-        runTest(id=0, odo=0)
+        runTest(id=0, testODO=0)
 
     with raises(ValueError):
-        runTest(id=1, odo=1)
+        runTest(id=1, testODO=1)
 
 
 # check that the service-due-flag is now false.
@@ -161,7 +188,7 @@ def test_updateServiceDone():
 
             # Pass any raised exceptions out to the caller.
             try:
-                main.updateServiceDone(itemID=id, servODO=odo)
+                main.updateServiceDone(itemID=id, itemODO=odo)
             except:
                 raise
 
@@ -347,6 +374,62 @@ def test_dailyMaint(mocker):
         promptedUsersIntrospect.append(usr)
         return ("not_a_phone", "not_a_message")
 
+    def runTest(simulatedTodayDate):
+        main.dailyMaint()
+
+        # check that the right list of users has been prompted
+        # get a list from the db of the users that should be called.
+        with DBConnection() as db:
+            c = db.cursor
+            c.execute(f"""
+                SELECT DISTINCT userID FROM vehicles
+                WHERE DATEDIFF('{testDate}', dateLastODO) > '{main.ODOPROMPTINTERVAL}'
+            """)
+            result = c.fetchall()
+
+            refUsersList = []
+            for item in result:
+                refUsersList.append(item[0])
+
+            assert refUsersList == promptedUsersIntrospect
+
+            # check that the vehicles table has been updated correctly.
+            # TEST: estMiles should be updated to miles + milesperday * days elapsed when miles not null.
+            # TEST: IF Miles is NULL. then estMiles and milesPerDay should be set to 0.
+            # TEST: milesPerDay should not be null anywhere. do this as a separate test.
+
+            c.execute("""
+                SELECT estMiles = (miles + milesPerDay * DATEDIFF('2025-09-15', dateLastODO))
+                FROM vehicles
+                WHERE miles IS NOT NULL
+            """)
+            result1 = c.fetchall()
+            for assertion in result1:
+                if assertion[0] != 1:
+                    breakpoint()
+                assert assertion[0]
+
+            c.execute("""
+                SELECT estMiles = 0 AND milesPerDay = 0
+                FROM vehicles
+                WHERE miles IS NULL
+            """)
+            result2 = c.fetchall()
+            for assertion in result2:
+                if assertion[0] != 1:
+                    breakpoint()
+                assert assertion[0]
+
+            c.execute("""
+                SELECT milesPerDay IS NOT NULL
+                FROM vehicles
+            """)
+            result3 = c.fetchall()
+            for assertion in result3:
+                if assertion[0] != 1:
+                    breakpoint()
+                assert assertion[0]
+
     # mock the today's date function.
     testDate = date(2025, 9, 15)
     mocker.patch('main.getDateToday', return_value=testDate)
@@ -361,34 +444,94 @@ def test_dailyMaint(mocker):
 
     buildSampleDB()
 
-    main.dailyMaint()
-
-    # check that the right list of users has been prompted
-    # get a list from the db of the users that should be called.
-    with DBConnection() as db:
-        c = db.cursor
-        c.execute(f"""
-            SELECT DISTINCT userID FROM vehicles
-            WHERE DATEDIFF('{testDate}', dateLastODO) > '{main.ODOPROMPTINTERVAL}'
-        """)
-        result = c.fetchall()
-
-        refUsersList = []
-        for item in result:
-            refUsersList.append(item[0])
-
-        assert refUsersList == promptedUsersIntrospect
-
-        # check that the vehicles table has been updated correctly.
-        # use query SELECT (miles + milesPerDay * DATEDIFF('2025-09-15', dateLastODO)) = estMiles FROM VEHICLES'
-        c.execute("""
-            SELECT (miles + milesPerDay * DATEDIFF('2025-09-15', dateLastODO)) = estMiles FROM VEHICLES
-        """)
-        result = c.fetchall()
-        for assertion in result:
-            assert assertion[0]
+    # run the test 10 times to simulate 10 days of maintenance.
+    for days in range(0, 9):
+        runTest(testDate + timedelta(days=days))
+        # reset for the next test.
+        promptedUsersIntrospect = []
 
 
 def test_homepage(client):
     response = client.get("/")
     assert response.status_code == 200
+
+
+# def test_receiveOdoMsg
+# utilize the client and mocker features to simulate a post to the route
+# and then mock the call to updateODO to check the function's work.
+# the mocked updateODO should also simulate some exceptions which then
+# need to be handled
+# Also check the return values of receiveOdoMsg
+def test_receiveOdoMsg(client, mocker):
+    # mock things:
+    # -
+    # def a runTest function
+    def runTest(httpRequest=""):
+        # in pytest, there is no with does not raise thing.
+        # But, and this gets into python "contexts",
+        # "does not raise" is basically equivalent to a nothing context.
+        # so for the sake of better readable code I'm implementing
+        # "nullcontext" as "does_not_raise"
+        # again, if this function throws an exception it is a problem outside of the
+        # scope I am willing to take for this project. So must avoid throwing an exception.
+        with does_not_raise:
+            resp = client.post("SOMETHING")
+
+        # is the response an instance of MessagingResponse?
+        assert isinstance(resp, MessagingResponse)
+
+        # get the response message back and parse it for relevant data.
+        respMsg = resp.message
+
+        # get the httpRequest and parse it to form the logical statements that cause
+        # assertions.
+        phone = "1234134"  # get the phone number from the request
+        smsContent = "Somecontent"  # get the message content.
+
+        # -input handling:
+        #  'From' should just be a phone number. no need to test.
+        #  -Handle the case in which the vehicleID is not in the database. This should throw
+        #    an exception which should be handled, causing receiveOdoMsg to return a corresponding message.
+        #      -Handle bad odo readings:
+        #          -odo is not a number
+        #          -odo is a number, but is:
+        #              -lower than the vehicle's odo and therefore invalid.
+        #              -negative
+        #              -too large. since DB sets a maximum amount in the schema, investigate using an excetion thrown by MySQL
+        #                  for this.
+        # check are we testing for these conditions? Do the params cause these violations?
+        testNoMatchingVehInDB = True
+        testOdoIsNotNumber = True
+        odoLowerThanVehMiles = True
+        odoIsNeg = True
+        odoTooLarge = True
+
+        if testNoMatchingVehInDB:
+            assert True
+
+        if testOdoIsNotNumber:
+            assert True
+
+        if odoLowerThanVehMiles:
+            assert True
+
+        if odoIsNeg:
+            assert True
+
+        if odoTooLarge:
+            assert True
+
+        #   -calls updateODO using the correct inputs.
+        #       -use some sort of list variable updated by a side effect of the mocked updateODO
+        #       -mocked updateODO should also raise exceptions for things that concern updateODO.
+        return
+    # assert the outputs
+    # call runTest for exception cases specifically, however this may not look like
+    #    raising an exception but moreso returning a message that indicates an error.
+    # generate fake calls and call runTest
+    return
+
+
+# testDate = date(2025, 9, 15)
+# for days in range(0, 9):
+#     print(testDate + timedelta(days=days))

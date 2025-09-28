@@ -40,9 +40,9 @@ def createTables(connection, cursor):
             make VARCHAR(255),
             model VARCHAR(255),
             year YEAR,
-            miles DECIMAL(8,1) CHECK (miles >= 0),
-            dateLastODO DATE,
-            milesPerDay DOUBLE DEFAULT 20,
+            miles DECIMAL(8,1) DEFAULT NULL CHECK (miles >= 0),
+            dateLastODO DATE DEFAULT NULL,
+            milesPerDay DOUBLE,
             estMiles DOUBLE,
             PRIMARY KEY (vehicleID),
             FOREIGN KEY (userID) REFERENCES users(userID)
@@ -83,18 +83,20 @@ def loadSampleData(connection, cursor):
     cursor.executemany(sampleUsersStatement, sampleUsers)
 
     sampleVehiclesStatement = """
-        INSERT INTO vehicles (userID, vehNickname, make, model, year, miles, dateLastODO, milesPerDay)
-        VALUES ( %s, %s, %s, %s, %s, %s, %s, %s )
+        INSERT INTO vehicles (userID, vehNickname, make, model, year, miles, dateLastODO, milesPerDay, estMiles)
+        VALUES ( %s, %s, %s, %s, %s, %s, %s, %s, %s )
     """
     sampleVehicles = [
-        (1, "Moose", "Lexus", "Rx350", "2015", "110000", "2025-9-13", "20.3"),
-        (1, "Yoda", "Toyota", "Rav4", "2011", "125920", "2025-9-13", "100.4"),
-        (2, None, "Subaru", "Crosstrek", "2019", "10", "2025-9-10", "200.1"),
-        (3, None, "Subaru", "Outback", "2025", None, None, None),
+        (1, "Moose", "Lexus", "Rx350", "2015",
+         "110000", "2025-9-13", "20.3", "110020.3"),
+        (1, "Yoda", "Toyota", "Rav4", "2011", "125920", "2025-9-13", "100.4", "0"),
+        (2, None, "Subaru", "Crosstrek", "2019",
+         "10", "2025-9-10", "200.1", "210.1"),
+        (3, None, "Subaru", "Outback", "2025", None, None, None, None),
         (4, "Grandma", "Volkwagen", "Jetta TDI Sportwagen",
-         "2014", "140020", "2024-7-13", "234"),
+         "2014", "140020", "2024-7-13", "234", "10"),
         (4, "Grandpa", "Subaru", "Forester",
-         "2005", "250120", "2025-09-11", None)
+         "2005", "250120", "2025-09-11", None, "534")
     ]
     cursor.executemany(sampleVehiclesStatement, sampleVehicles)
 

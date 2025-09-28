@@ -9,6 +9,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 
 ODOPROMPTINTERVAL = 7  # the number of days to wait before prompting a regular ODO reading
 
+
 app = Flask(__name__)
 
 
@@ -95,6 +96,8 @@ def promptUserForOneVeh(usrID=0):
 # this should check that the new ODO reading is greater than the previous ODO reading. Should reply to the user confirming the reading or prompting again if the reading contains an error.
 # Calculate and store a new average miles per day given the prev ODO reading and the days since the last ODO reading.
 def updateODO(vehID=0, newODO=0):
+    today = getDateToday()
+
     if newODO is None:
         newODO = 0
 
@@ -108,20 +111,22 @@ def updateODO(vehID=0, newODO=0):
 
     curMiles, curOdoDate, curMilesPerDay = res[0]
 
-    # if this is the first time updating the ODO, we have to make up values for the previous numbers.
-    # in particular, the previous milesPerDay, so that for the first period of time the estimates
-    # are not outrageous.
-    # use or statements to catch any weird cases.
+    # In updateODO we want to detect if odo is None. We need to make a sepcial case.
+    # and take a sepcial default action that doesn't blow up the mileage estimates.
+    # In that case, let miles per day be 0 to prevent unneccesary service reminders
+    # until there is a regular cadence of updates.
+    # dailyMaint will check if there is no previous odo reading as well.
+    # checking for null values in the other values is kind of "extra" and really
+    # there just to keep things moving. I don't expect cases where these values
+    # will be None in a production setting.
     if not curMiles or not curOdoDate or not curMilesPerDay:
         curMiles = 0
-        # this will indirectly allow us to set the new milesperday to a defined number.
-        curOdoDate = getDateToday()
-        curMilesPerDay = 20
+        curOdoDate = today
+        curMilesPerDay = 0
     elif curMiles > newODO:
         raise ValueError(
             "cannot update the mileage with a lesser number than the current value")
 
-    today = getDateToday()
     # we have to account for if the odo is updated again on the same day.
     try:
         newMilesPerDay = (newODO - float(curMiles)) / (today - curOdoDate).days
@@ -130,7 +135,7 @@ def updateODO(vehID=0, newODO=0):
 
     querySQL(f"""
         UPDATE vehicles
-        SET miles = {newODO}, dateLastODO = '{today}', milesPerDay = {newMilesPerDay}
+        SET miles = {round(newODO, 1)}, dateLastODO = '{today}', milesPerDay = {newMilesPerDay}
         WHERE vehicleID = {vehID}
     """)
 
@@ -138,9 +143,9 @@ def updateODO(vehID=0, newODO=0):
 # def:
 # update the records indicating a service was done at a given miles
 # should remove the service due flag, update the mileage deadline, and update the ODO for the vehicle only if this ODO is greater than the ODO stored for the vehicle.
-def updateServiceDone(itemID=0, servODO=0):
-    if not servODO:  # if servODO is None
-        servODO = 0
+def updateServiceDone(itemID=0, itemODO=0):
+    if not itemODO:  # if servODO is None
+        itemODO = 0
 
     # check for not the right type
     # update the miles of the parent vehicle, only if the new ODO is greater than the previous ODO.
@@ -155,14 +160,14 @@ def updateServiceDone(itemID=0, servODO=0):
     # yes, I know updateODO checks for this and throws an exception,
     # but this is not an error. Dont want to trip an exception.
     vehID, parentMiles = res[0]
-    if not parentMiles or servODO > parentMiles:
+    if not parentMiles or itemODO > parentMiles:
         # update the miles of the parent vehicle.
-        updateODO(vehID, servODO)
+        updateODO(vehID, itemODO)
 
     # remove the service flag and update the dueAtMiles.
     querySQL(f"""
         UPDATE serviceSchedule
-        SET dueAtMiles = {servODO} + serviceInterval, servDueFlag = FALSE
+        SET dueAtMiles = {itemODO} + serviceInterval, servDueFlag = FALSE
         WHERE itemID = {itemID}
     """)
 
@@ -238,11 +243,27 @@ def dailyMaint():
         sendSMS(recip=phone, msg=msg)
 
     # calculate a new mileage estimate for all vehicles.
-    querySQL(stmt=f"""
+    # deal with the case in which miles is NULL.
+    # if miles is NULL, estMiles and milesPerDay should be set to 0.
+    # For code robustness, but not really a high-demand case, do the same
+    # when milesPerDay is NULL as well we are setting estMiles so no need for that.
+
+    # THE ORDER OF THESE QUERIES IS IMPORTANT
+    queryForNull = f"""
+        UPDATE vehicles
+        SET estMiles = 0,
+            milesPerDay = 0
+        WHERE miles IS NULL OR milesPerDay IS NULL
+    """
+    querySQL(stmt=queryForNull)
+    # now milesPerDay is never null.
+    queryForNotNull = f"""
         UPDATE vehicles
         SET estMiles = (vehicles.miles + 
             vehicles.milesPerDay * DATEDIFF('{getDateTodayStr()}', vehicles.dateLastODO))
-    """)
+        WHERE miles IS NOT NULL
+    """
+    querySQL(stmt=queryForNotNull)
 
     # for each service item, if deadline-odoEst < some constant, set the flag.
     servDueThresh = 500
