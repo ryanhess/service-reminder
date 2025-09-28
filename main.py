@@ -11,8 +11,14 @@ ODOPROMPTINTERVAL = 7  # the number of days to wait before prompting a regular O
 
 app = Flask(__name__)
 
-# global variable. this will be updated every day during the daily maintenance routine
-today = date.today().strftime('%Y-%m-%d')
+
+def getDateToday():
+    return date.today()
+
+
+# function to get today's date in YYYY-mm-dd
+def getDateTodayStr():
+    return getDateToday().strftime('%Y-%m-%d')
 
 ### custom exceptions ###
 
@@ -88,31 +94,43 @@ def promptUserForOneVeh(usrID=0):
 # handle a received message that is an odometer reading.
 # this should check that the new ODO reading is greater than the previous ODO reading. Should reply to the user confirming the reading or prompting again if the reading contains an error.
 # Calculate and store a new average miles per day given the prev ODO reading and the days since the last ODO reading.
-def updateODO(vehID=0, odo=0):
-    if odo is None:
-        odo = 0
+def updateODO(vehID=0, newODO=0):
+    if newODO is None:
+        newODO = 0
 
-    # alter the given vehicle record with a new odo reading. Also set the datelastodo to today.
     res = querySQL(f"""
-        SELECT miles FROM vehicles WHERE vehicleID = {vehID}
+        SELECT miles, dateLastODO, milesPerDay FROM vehicles WHERE vehicleID = {vehID}
     """)
 
     if res == []:
         raise NotInDatabaseError(
             "vehicle with this ID does not exist in the database.")
 
-    curMiles = res[0][0]
+    curMiles, curOdoDate, curMilesPerDay = res[0]
 
-    if not odo:
-        odo = 0
-
-    if curMiles and curMiles > odo:
+    # if this is the first time updating the ODO, we have to make up values for the previous numbers.
+    # in particular, the previous milesPerDay, so that for the first period of time the estimates
+    # are not outrageous.
+    # use or statements to catch any weird cases.
+    if not curMiles or not curOdoDate or not curMilesPerDay:
+        curMiles = 0
+        # this will indirectly allow us to set the new milesperday to a defined number.
+        curOdoDate = getDateToday()
+        curMilesPerDay = 20
+    elif curMiles > newODO:
         raise ValueError(
             "cannot update the mileage with a lesser number than the current value")
 
+    today = getDateToday()
+    # we have to account for if the odo is updated again on the same day.
+    try:
+        newMilesPerDay = (newODO - float(curMiles)) / (today - curOdoDate).days
+    except ZeroDivisionError:
+        newMilesPerDay = curMilesPerDay
+
     querySQL(f"""
         UPDATE vehicles
-        SET miles = {odo}, dateLastODO = '{today}'
+        SET miles = {newODO}, dateLastODO = '{today}', milesPerDay = {newMilesPerDay}
         WHERE vehicleID = {vehID}
     """)
 
@@ -186,7 +204,6 @@ def notifyOneService(serviceItemID):
 # check the DB for service that is due and call notifyOneService for each item due.
 # Send the returned message to the returned phone number by calling sendSMS
 def notifyAllService():
-    # query a list of flagged service items from the database
     query = """
         SELECT itemID FROM serviceSchedule
         WHERE servDueFlag = TRUE
@@ -202,19 +219,17 @@ def notifyAllService():
         # send the message.
         sendSMS(recip=phone, msg=msg)
 
+    return flaggedItems
+
 
 # def:
-# SHOULD BE CALLED AT LEAST EVERY DAY or the TODAY global will not be updated.
+# should be called at least every day.
 # check on the vehicle database, update values, and call for sending messages to the user. This should happen at a regular interval determined by the caller.
 def dailyMaint():
-    # update today's date global variable
-    global today
-    today = date.today().strftime('%Y-%m-%d')  # def getTOdayt outside the func
-
-    # Query the database for vehicles for which the last ODO reading date is more than x days ago. For this set of vehicles, call promptODO.
+    # get a list of userIDs which are from vehicles which have out of date ODO readings.
     query = f"""
         SELECT DISTINCT userID FROM vehicles
-        WHERE DATEDIFF('{today}', dateLastODO) > '{ODOPROMPTINTERVAL}'
+        WHERE DATEDIFF('{getDateTodayStr()}', dateLastODO) > '{ODOPROMPTINTERVAL}'
     """
     queryResult = querySQL(stmt=query)
     # sort the list by userID, then by dateLastODO oldest to newest. This ensures that the highest priority is to query the most out of date vehicle.
@@ -226,7 +241,7 @@ def dailyMaint():
     querySQL(stmt=f"""
         UPDATE vehicles
         SET estMiles = (vehicles.miles + 
-            vehicles.milesPerDay * DATEDIFF('{today}', vehicles.dateLastODO))
+            vehicles.milesPerDay * DATEDIFF('{getDateTodayStr()}', vehicles.dateLastODO))
     """)
 
     # for each service item, if deadline-odoEst < some constant, set the flag.
@@ -237,8 +252,6 @@ def dailyMaint():
         WHERE (serviceSchedule.dueAtMiles - (SELECT estMiles FROM vehicles WHERE vehicles.vehicleID = serviceSchedule.vehicleID))
              < {servDueThresh}
     """)
-
-    # called the stored procedure which sets all service reminder flags
 
 
 # takes the phone number and the content and then passes the appropriate vehicleID and the content (which shoudl be odo) to the updateODO function.
@@ -254,7 +267,7 @@ def receiveOdoMsg():
                 res = querySQL(f"""
                     SELECT vehicleID FROM vehicles WHERE
                         (vehicles.userID=(SELECT userID FROM users WHERE users.phone={phone}))
-                        AND DATEDIFF('{today}', vehicles.dateLastODO) > '{ODOPROMPTINTERVAL}'
+                        AND DATEDIFF('{getDateTodayStr()}', vehicles.dateLastODO) > '{ODOPROMPTINTERVAL}'
                         ORDER BY dateLastODO ASC LIMIT 1
                 """)
                 return res[0]

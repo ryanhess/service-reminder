@@ -5,6 +5,7 @@ from mysql.connector import connect, Error
 from pytest import fixture, raises
 from decimal import Decimal
 import pytest_mock
+from datetime import date
 
 
 @fixture
@@ -27,12 +28,10 @@ def buildBlankDB():
         DB_Builder.dropAllTables(con, curs)
         DB_Builder.createTables(con, curs)
 
+
 ### TESTS ###
-
-
-def test_homepage(client):
-    response = client.get("/")
-    assert response.status_code == 200
+def test_getDateToday():
+    assert main.getDateTodayStr() == date.today().strftime('%Y-%m-%d')
 
 
 def test_querySQL():
@@ -86,28 +85,61 @@ def test_promptUserForOneVeh():
 
 # needs to test that the function performs the expected result which is:
 #   vehicleID's ODO value is updated to the input value
+#   updates the dateLastODO
+#   updates the milesPerDay to the correct value.
 # raises NotInDatabaseError when vehicle is not in the database
 # raises ValueError if the inputted miles are less than the ODO value on record.
-def test_updateODO():
+def test_updateODO(mocker):
     buildSampleDB()
+
+    sampleToday = date(2025, 9, 13)  # artificially set today
+    mocker.patch('main.getDateToday', return_value=sampleToday)
 
     def runTest(id, odo):
         with DBConnection() as db:
             curs = db.cursor
 
-            # pass out any exceptions
-            try:
-                main.updateODO(vehID=id, odo=odo)
-            except:
-                raise
-
+            # get the previous dateLastODO so we can compare.
             curs.execute(
-                f"SELECT miles FROM vehicles WHERE vehicleID = {id}")
-            res = curs.fetchall()
-            assert float(res[0][0]) == odo
+                f"SELECT miles, dateLastODO, milesPerDay FROM vehicles WHERE vehicleID = {id}")
+
+            # just dump to a variable for now to postpone any issues with NotInDatabaseError.
+            oldData = curs.fetchall()
+
+        # pass out any exceptions and execute the function
+        try:
+            main.updateODO(vehID=id, newODO=odo)
+        except:
+            raise
+
+        # now unpack with indexing since we made it here.
+        oldODO, oldDateLast, oldMilesPerDay = oldData[0]
+
+        if not oldODO or not oldDateLast or not oldMilesPerDay:
+            oldODO = 0
+            oldDateLast = sampleToday
+            oldMilesPerDay = main.INITIALMILESPERDAY
+
+        with DBConnection() as db:
+            curs = db.cursor
+            curs.execute(
+                f"SELECT miles, dateLastODO, milesPerDay FROM vehicles WHERE vehicleID = {id}")
+            newODO, newDateLast, newMilesPerDay = curs.fetchall()[0]
+
+        daydiff = (sampleToday-oldDateLast).days
+        if daydiff == 0:
+            testMilesPerDay = oldMilesPerDay
+        else:
+            testMilesPerDay = \
+                (float(newODO) - oldODO) / daydiff
+
+        assert float(newODO) == odo
+        assert newDateLast == sampleToday
+        assert newMilesPerDay == testMilesPerDay
 
     runTest(1, 110000.1)
     runTest(2, 1030001)
+    runTest(4, 1000)
 
     with raises(main.NotInDatabaseError):
         runTest(id=0, odo=0)
@@ -286,4 +318,77 @@ def test_notifyOneService():
         runTest(id[0])
 
 
-# test_notifyOneService()
+# Just compare that the function can find all the flagged service items
+def test_notifyAllService():
+    buildSampleDB()
+
+    query = """SELECT itemID FROM serviceSchedule
+        WHERE servDueFlag = TRUE"""
+
+    with DBConnection() as db:
+        cur = db.cursor
+        cur.execute(operation=query)
+        res = cur.fetchall()
+
+    assert res == main.notifyAllService()
+
+
+# dailyMaint:
+# run dailyMaint and gather some data using mock functions:
+# mock the output of getDateToday to be some set value, this will produce a consistent test.
+# check that the right list of users has been prompted (don't actually prompt anyone)
+# check that the vehicles table has been updated correctly.
+# check that the service schedule has been updated correclty.
+def test_dailyMaint(mocker):
+    # a list of users that will be populated by dailyMaint when it calls the (mocked) promptUser function
+    promptedUsersIntrospect = []
+
+    def promptUserSideEffect(usr):
+        promptedUsersIntrospect.append(usr)
+        return ("not_a_phone", "not_a_message")
+
+    # mock the today's date function.
+    testDate = date(2025, 9, 15)
+    mocker.patch('main.getDateToday', return_value=testDate)
+
+    # mock the promptUserForoneveh function such that we can read out params for all calls to it.
+    mockPromptUser = mocker.patch('main.promptUserForOneVeh')
+    mockPromptUser.side_effect = promptUserSideEffect
+    mockPromptUser.return_value = ("not_a_phone", "not_a_message")
+
+    # mock sendSMS to avoid calls to it. doesn't need to do anything
+    mocker.patch('main.sendSMS')
+
+    buildSampleDB()
+
+    main.dailyMaint()
+
+    # check that the right list of users has been prompted
+    # get a list from the db of the users that should be called.
+    with DBConnection() as db:
+        c = db.cursor
+        c.execute(f"""
+            SELECT DISTINCT userID FROM vehicles
+            WHERE DATEDIFF('{testDate}', dateLastODO) > '{main.ODOPROMPTINTERVAL}'
+        """)
+        result = c.fetchall()
+
+        refUsersList = []
+        for item in result:
+            refUsersList.append(item[0])
+
+        assert refUsersList == promptedUsersIntrospect
+
+        # check that the vehicles table has been updated correctly.
+        # use query SELECT (miles + milesPerDay * DATEDIFF('2025-09-15', dateLastODO)) = estMiles FROM VEHICLES'
+        c.execute("""
+            SELECT (miles + milesPerDay * DATEDIFF('2025-09-15', dateLastODO)) = estMiles FROM VEHICLES
+        """)
+        result = c.fetchall()
+        for assertion in result:
+            assert assertion[0]
+
+
+def test_homepage(client):
+    response = client.get("/")
+    assert response.status_code == 200

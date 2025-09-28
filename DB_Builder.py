@@ -19,8 +19,6 @@ def dropAllTables(connection, cursor):
     cursor.execute("DROP TABLE IF EXISTS serviceSchedule")
     cursor.execute("DROP TABLE IF EXISTS vehicles")
     cursor.execute("DROP TABLE IF EXISTS users")
-    cursor.execute(
-        "DROP PROCEDURE IF EXISTS service_reminders_app.setServiceReminderFlags")
     connection.commit()
 
 
@@ -44,7 +42,7 @@ def createTables(connection, cursor):
             year YEAR,
             miles DECIMAL(8,1) CHECK (miles >= 0),
             dateLastODO DATE,
-            milesPerDay DOUBLE,
+            milesPerDay DOUBLE DEFAULT 20,
             estMiles DOUBLE,
             PRIMARY KEY (vehicleID),
             FOREIGN KEY (userID) REFERENCES users(userID)
