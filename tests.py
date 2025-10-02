@@ -8,6 +8,8 @@ import pytest_mock
 from datetime import date, timedelta
 from twilio.twiml.messaging_response import MessagingResponse
 from contextlib import nullcontext as does_not_raise
+from flask import Response
+import xml.etree.ElementTree as ET  # for parsing responses from routes.
 
 
 @fixture
@@ -19,24 +21,6 @@ def client():
 
 
 ### HELPERS ###
-
-# pretty much a dead ringer for querySQL except it uses my context class DBConnection
-# and it does away with the many jazz. fix this multiple mess later.
-def querySQLinTest(stmt=""):
-    try:
-        with DBConnection() as db:
-            connection = db.connection
-            c1 = db.cursor
-            c1.execute(stmt)
-            result = c1.fetchall()
-            connection.commit()
-
-            return result
-
-    except Error as e:
-        raise Exception(e)
-
-
 def buildSampleDB():
     DB_Builder.newDBWithData()
 
@@ -49,47 +33,96 @@ def buildBlankDB():
         DB_Builder.createTables(con, curs)
 
 
+def getSampleTodayStr():
+    return getSampleToday().strftime('%Y-%m-%d')
+
+
+def getSampleToday():
+    return date(2025, 9, 15)
+
+
+# get Max Value for Column in table
+# returns the theoretical maximum value for a given column in a given table schema
+# if the data type is a decimal. (flesh this out later to more data types
+# if it serves a purpose.)
+def getMaxTheoValueDecimal(tableName="", columnName=""):
+    result = main.querySQL(f"""
+        SELECT numeric_precision, numeric_scale
+        FROM information_schema.columns
+        WHERE table_schema = "service_reminders_app"
+        AND table_name = "{tableName}"
+        AND column_name = "{columnName}"
+        AND data_type = "decimal"
+    """)
+    if result == []:
+        return "Column is not Decimal type"
+    else:
+        digitsLeftDecimal = result[0][0] - 1
+        digitsRightDecimal = result[0][1]
+        return 10 ** digitsLeftDecimal - 10 ** (-1 * digitsRightDecimal)
+
+
 ### TESTS ###
+
+
 def test_getDateToday():
     assert main.getDateTodayStr() == date.today().strftime('%Y-%m-%d')
 
 
-def test_querySQL():
-    # NEEDS NO TEST
-    # querySQL:
-    #   passes on SQL queries to the database using the mysql connector python library.
-    #   passes back any errors.
-    #   opens and then closes the connection, through with/as statement.
-    #   This is all using other people's code. There is nothing I wrote that I need to test.
-    return
+# for a user, get the vehicle that is eligible for an update.
+# if vehicle is more than x days out of date
+# and its the most out of date vehicle.
+# if the dateLastODO or miles is none, that vehicle jumps to the top
+# return none if there is no eligible vehicle.
+def test_getUserUpdateVehicle(mocker):
+    mocker.patch('main.getDateToday', return_value=getSampleToday())
+    buildSampleDB()
+
+    users = main.querySQL("""
+        SELECT userID FROM users
+    """)
+
+    # based on the sample database.
+    anticipatedResults = [None, 3, 4, 6, 8, 9]
+
+    for (user, result) in zip(users, anticipatedResults):
+        funcResult = main.getUserUpdateVehicle(user[0])
+        print(funcResult)
+        assert result == funcResult
+
+    # promptUserForOneVeh does:
+    #   -retrieves one row from the vehicles table that belongs to the given user,
+    #    requires a ODO reading, and is the most out of date vehicle with such requirement.
+    #   -queries the users row for that user ID.
+    #   -extracts the user's phone number and composes a message out of all the info.
+    #   -returns the message and phone number.
+    #
+    # edge/other cases to test:
+    #   -function returns expected result for some case.
+    #   -usrID is not in the database.
+    #       -this is not a critical error and should not crash the server, but should make a console message.
+    #       -test the return values.
+    #   -the given user has more than one veh with the same dateLastODO. Function should execute and return one of the two possible results.
+    #   -dateLastODO is None. In that case, it is the most out of date.
 
 
-# promptUserForOneVeh does:
-#   -retrieves one row from the vehicles table that belongs to the given user,
-#    requires a ODO reading, and is the most out of date vehicle with such requirement.
-#   -queries the users row for that user ID.
-#   -extracts the user's phone number and composes a message out of all the info.
-#   -returns the message and phone number.
-#
-# edge/other cases to test:
-#   -function returns expected result for some case.
-#   -usrID is not in the database.
-#       -this is not a critical error and should not crash the server, but should make a console message.
-#       -test the return values.
-#   -the given user has more than one veh with the same dateLastODO. Function should execute and return one of the two possible results.
-def test_promptUserForOneVeh():
+# no longer need to test that the right vehicle is retrieved, just
+# that the right messages are generated. Once again mock today
+def test_promptUserForOneVeh(mocker):
+    mocker.patch('main.getDateToday', return_value=getSampleToday())
+    # today = date(2025, 9, 15)
     buildSampleDB()  # rebuild the database with some sample data.
     # test user 4. should return data "hey Soraya," "Grandma" stuff stuff.
     phone, msg = main.promptUserForOneVeh(usrID=4)
     assert phone == "+19178487133"
     assert "sorayah" in msg and "Grandma" in msg
 
-    # test user 3. should return Hey brianhess, please reply with ... your 2025 subaru outback.
+    # test user 3. should return subaru outback because it has None for dateLastODO
     phone, msg = main.promptUserForOneVeh(usrID=3)
     assert phone == "+19177978174"
     assert "brianhess" in msg and "2025 Subaru Outback" in msg
 
-    # test user 1000. should raise a custom expression
+    # test user 1000. should raise a custom exception
     with raises(main.NotInDatabaseError):
         main.promptUserForOneVeh(usrID=1000)
 
@@ -97,10 +130,11 @@ def test_promptUserForOneVeh():
     with raises(main.NotInDatabaseError):
         main.promptUserForOneVeh(usrID=0)
 
-    # test user 1. should return one or the other of "ryanhess" and "moose" or "yoda"
-    phone, msg = main.promptUserForOneVeh(usrID=1)
-    assert phone == "+18777804236"
-    assert "ryanhess" in msg and (("Moose" in msg) != ("Yoda" in msg))
+    # test user 1. should return one or the other of "detectivemiller" and "millertruck1" or "millertruck2"
+    phone, msg = main.promptUserForOneVeh(usrID=7)
+    assert phone == "+12345678901"
+    assert "detectivemiller" in msg and \
+        (("millertruck1" in msg) != ("millertruck2" in msg))
 
 
 # needs to test that the function performs the expected result which is:
@@ -165,21 +199,26 @@ def test_updateODO(mocker):
     runTest(2, 1030001)
     runTest(3, 1000000.93)
     runTest(4, 1001)
-    runTest(5, 200000.19001)
     runTest(6, 300000)
+    runTest(11, 10)
 
     with raises(main.NotInDatabaseError):
         runTest(id=0, testODO=0)
 
+    # if the passed odo is less than the one stored for veh, function should
+    # raise a ValueError
     with raises(ValueError):
         runTest(id=1, testODO=1)
+
+    with raises(ValueError):
+        runTest(5, 200000.19001)
 
 
 # check that the service-due-flag is now false.
 # check that the mileage deadline is now extended by the mileage interval plus the odo value
 # check that when odo is less than parent miles, the parent miles is not updated.
 # check proper NotInDatabaseError.
-# this function should return True if parent miles (after db operations) is greater than the odo passed.
+# runTest should return True if parent miles (after db operations) equals the odo passed.
 # in oher words, the DB integrity is preserved and the odo values is rejected.
 def test_updateServiceDone():
     def runTest(id, odo):
@@ -192,13 +231,19 @@ def test_updateServiceDone():
             except:
                 raise
 
-            curs.execute(
-                f"SELECT vehicleID, serviceInterval, dueAtMiles, servDueFlag FROM serviceSchedule WHERE itemID = {id}")
+            curs.execute(f'''
+                SELECT vehicleID, serviceInterval, dueAtMiles, servDueFlag
+                FROM serviceSchedule
+                WHERE itemID = {id}
+            ''')
+
             res = curs.fetchall()
             veh, interval, dueAt, flag = res[0]
+
             curs.execute(f"SELECT miles FROM vehicles WHERE vehicleID = {veh}")
             res = curs.fetchall()
             parentMiles = float(res[0][0])
+
             assert not flag
             assert float(dueAt) == round(odo, 1) + float(interval)
 
@@ -344,8 +389,9 @@ def test_notifyOneService():
     for id in ids:
         runTest(id[0])
 
-
 # Just compare that the function can find all the flagged service items
+
+
 def test_notifyAllService():
     buildSampleDB()
 
@@ -359,13 +405,14 @@ def test_notifyAllService():
 
     assert res == main.notifyAllService()
 
-
 # dailyMaint:
 # run dailyMaint and gather some data using mock functions:
 # mock the output of getDateToday to be some set value, this will produce a consistent test.
 # check that the right list of users has been prompted (don't actually prompt anyone)
 # check that the vehicles table has been updated correctly.
 # check that the service schedule has been updated correclty.
+
+
 def test_dailyMaint(mocker):
     # a list of users that will be populated by dailyMaint when it calls the (mocked) promptUser function
     promptedUsersIntrospect = []
@@ -398,8 +445,8 @@ def test_dailyMaint(mocker):
             # TEST: IF Miles is NULL. then estMiles and milesPerDay should be set to 0.
             # TEST: milesPerDay should not be null anywhere. do this as a separate test.
 
-            c.execute("""
-                SELECT estMiles = (miles + milesPerDay * DATEDIFF('2025-09-15', dateLastODO))
+            c.execute(f"""
+                SELECT estMiles = (miles + milesPerDay * DATEDIFF('{testDate}', dateLastODO))
                 FROM vehicles
                 WHERE miles IS NOT NULL
             """)
@@ -462,76 +509,238 @@ def test_homepage(client):
 # the mocked updateODO should also simulate some exceptions which then
 # need to be handled
 # Also check the return values of receiveOdoMsg
+# figuring out something about testing herE:
+# if I make all the testing automated I start to have trouble debugging the test code on top of the code dode.
+# instead of checking the inputs in the test code an then comparing the tests of the inputs in the real code,
+# just check the real code against a hard-coded "expected result" that I can easily read off in the test_...() function,
+# using print statements.
+# then if there is a failure I first can check my function calls that I am asserting the right outputs.
 def test_receiveOdoMsg(client, mocker):
+    updatedVehIntrospect = None
+
+    def updateOdoMockFunc(vehID, newODO):
+        # if updateOdo would return an error this will remain
+        # None
+        nonlocal updatedVehIntrospect
+        updatedVehIntrospect = None
+
+        result = main.querySQL(f"""
+            SELECT miles FROM vehicles
+            WHERE vehicleID = {vehID}
+        """)
+
+        if result == []:
+            raise main.NotInDatabaseError("MOCK: veh not in DB")
+
+        vehODO = result[0][0]
+        if vehODO is not None:
+            if float(vehODO) > float(newODO):
+                raise ValueError("MOCK: new ODO less than vehicle odo.")
+
+        # since the function would work, set the variable to the vehID
+        updatedVehIntrospect = vehID
+
+    todaySample = date(2025, 9, 15)
+
     # mock things:
-    # -
-    # def a runTest function
-    def runTest(httpRequest=""):
-        # in pytest, there is no with does not raise thing.
-        # But, and this gets into python "contexts",
-        # "does not raise" is basically equivalent to a nothing context.
-        # so for the sake of better readable code I'm implementing
-        # "nullcontext" as "does_not_raise"
-        # again, if this function throws an exception it is a problem outside of the
-        # scope I am willing to take for this project. So must avoid throwing an exception.
-        with does_not_raise:
-            resp = client.post("SOMETHING")
+    mockUpdateODO = mocker.patch('main.updateODO')
+    mockUpdateODO.side_effect = updateOdoMockFunc
+    mocker.patch('main.getDateToday', return_value=todaySample)
 
-        # is the response an instance of MessagingResponse?
-        assert isinstance(resp, MessagingResponse)
+    def runTest(fromPhone, smsBody):
+        print(
+            f"\nreceiveOdoMsg From '{fromPhone}' Message reads: '{smsBody}'. Expected message: ")
+        # set up our fake http POST request.
+        # no need for setting the content type since flask sets this when
+        # you set the data param of .post
+        # therefore, there is no need to include headers since
+        # since I am not checking any in this version of receiveOdoMsg
+        route = '/receive_sms'
+        data = {
+            'From': fromPhone,
+            'Body': smsBody
+        }
 
-        # get the response message back and parse it for relevant data.
-        respMsg = resp.message
+        # use null_context as does_not_raise to indicate that we assert
+        # this won't raise an exception.
+        with does_not_raise():
+            response = client.post(path=route, data=data)
 
-        # get the httpRequest and parse it to form the logical statements that cause
-        # assertions.
-        phone = "1234134"  # get the phone number from the request
-        smsContent = "Somecontent"  # get the message content.
+        # # does receiveOdoMsg return a status code 200?
+        assert response.status_code == 200
 
+        # response will be a Flask.Response object. From this we must unpack
+        # twiML that encodes the respnse. This is xml.
+        respData = response.get_data()
+
+        # will it parse as XML? Then it is PROBABLY twiML
+        try:
+            twiMLReturnMessage = ET.fromstring(respData)
+        except ET.ParseError:
+            assert False
+
+        # is the root a 'response' tag with a 'message' tag nested in? Then it is
+        # twiml enough for me!
+        assert twiMLReturnMessage.tag == 'Response'
+        msgElem = twiMLReturnMessage.find('Message')
+        assert msgElem is not None
+
+        responseStr = msgElem.text
+        '''
         # -input handling:
         #  'From' should just be a phone number. no need to test.
+        #  if phone is not in DB message should indicate that.
         #  -Handle the case in which the vehicleID is not in the database. This should throw
         #    an exception which should be handled, causing receiveOdoMsg to return a corresponding message.
-        #      -Handle bad odo readings:
-        #          -odo is not a number
-        #          -odo is a number, but is:
-        #              -lower than the vehicle's odo and therefore invalid.
-        #              -negative
-        #              -too large. since DB sets a maximum amount in the schema, investigate using an excetion thrown by MySQL
-        #                  for this.
-        # check are we testing for these conditions? Do the params cause these violations?
-        testNoMatchingVehInDB = True
-        testOdoIsNotNumber = True
-        odoLowerThanVehMiles = True
-        odoIsNeg = True
-        odoTooLarge = True
+        #  -Handle bad odo readings:
+        #    -odo is not a number
+        #    -odo is a number, but is:
+        #      -lower than the vehicle's odo and therefore invalid.
+        #      -negative
+        #      -too large. since DB sets a maximum amount in the schema, investigate using an excetion thrown by MySQL
+        #       for this.
 
-        if testNoMatchingVehInDB:
-            assert True
+        # check if the phone number is in the DB and decide whether this input will test that.
+        res = main.querySQL(
+            stmt="""
+                SELECT userID FROM users
+                WHERE phone = %s
+            """,
+            val=(fromPhone,)
+        )
+        if res == []:
+            testNoUserInDB = True
+        else:
+            testNoUserInDB = False
 
-        if testOdoIsNotNumber:
-            assert True
+        # Attempt to retreive a vehicle that would be eligible for an update.
+        res = main.querySQL(f"""
+            SELECT vehicleID, miles, dateLastODO FROM vehicles
+            WHERE userID = (SELECT userID FROM users WHERE phone = "{fromPhone}")
+            AND DATEDIFF('{todaySample}', dateLastODO) > '{main.ODOPROMPTINTERVAL}'
+        """)
 
-        if odoLowerThanVehMiles:
-            assert True
+        # if there is no eligible vehicle under this user, we should check that
+        # receiveOdoMsg can figure that out and respond accordingly.
+        if res == []:
+            testNoMatchingVehInDB = True
+            vehID = None
+            vehMiles = None
+            dateLastOdo = None
+        else:
+            testNoMatchingVehInDB = False
+            vehID, vehMiles, dateLastOdo = res[0]
 
-        if odoIsNeg:
-            assert True
+        try:
+            odoReading = float(smsBody)
+        except ValueError:
+            odoReading = None
+            testOdoIsNotNumber = True
+        else:
+            testOdoIsNotNumber = False
 
-        if odoTooLarge:
-            assert True
+        testOdoLowerThanVehMiles = \
+            (vehMiles > odoReading) if odoReading and vehMiles else False
 
-        #   -calls updateODO using the correct inputs.
-        #       -use some sort of list variable updated by a side effect of the mocked updateODO
-        #       -mocked updateODO should also raise exceptions for things that concern updateODO.
-        return
-    # assert the outputs
-    # call runTest for exception cases specifically, however this may not look like
-    #    raising an exception but moreso returning a message that indicates an error.
-    # generate fake calls and call runTest
-    return
+        testOdoIsNeg = \
+            (odoReading < 0) if odoReading is not None else False
 
+        # query the database for the max possible value
+        maxODO = getMaxTheoValueDecimal("vehicles", "miles")
+        testOdoTooLarge = \
+            (odoReading > maxODO) if odoReading is not None else False
 
-# testDate = date(2025, 9, 15)
-# for days in range(0, 9):
-#     print(testDate + timedelta(days=days))
+        testNoDateLastOdo = dateLastOdo is None
+
+        # if the input would violate any of these conditions,
+        # check that receiveOdoMsg is also checking for these conditions
+        # and responding accordingly.
+        if testNoUserInDB:
+            assert "your phone number is not associated with Service Reminders." in responseStr
+            print("no user in DB")
+        elif testNoMatchingVehInDB:
+            assert "none of your vehicles need an odometer update." in responseStr
+            print("no eligible vehicle")
+        elif testOdoIsNotNumber:
+            assert "message is not a number" in responseStr
+            print("not a number")
+        elif testOdoIsNeg:
+            assert "can't be negative." in responseStr
+            print("negative")
+        elif testOdoTooLarge:
+            assert f"number can't be more than {maxODO}" in responseStr
+            print("too large")
+        elif testOdoLowerThanVehMiles:
+            assert "must be more than your vehicle's last recorded miles." in responseStr
+            print("less than recorded miles")
+        else:
+            print("no input errors.")
+            if testNoDateLastOdo:
+                print("first time ODO reading")
+        '''
+
+        maxODO = getMaxTheoValueDecimal("vehicles", "miles")
+
+        # these checks should cascade because these conditions shouldnt overlap
+        # (ie no user in db and no matching veh)
+        # these if/else statements basically paraphrase the message so I can easily hardcode
+        # in a more readable way outside. Then a paraphrased message is returned.
+        if "your phone number is not associated with Service Reminders." in responseStr:
+            print("no user in DB")
+            return "no user in DB"
+        elif "none of your vehicles need an odometer update." in responseStr:
+            print("no eligible vehicle")
+            return "no eligible vehicle"
+        elif "message is not a number" in responseStr:
+            print("not a number")
+            return "not a number"
+        elif "can't be negative." in responseStr:
+            print("negative")
+            return "negative"
+        elif f"number can't be more than {maxODO}" in responseStr:
+            print("too large")
+            return "too large"
+        elif "must be more than your vehicle's last recorded miles." in responseStr:
+            print("less than recorded miles")
+            return "less than recorded miles"
+        elif "Successfully updated the odometer" in responseStr:
+            print("no input errors")
+            return "no input errors"
+        else:
+            print("UNCAUGHT INPUT ERROR")
+            return "UNCAUGHT INPUT ERROR"
+
+    # bad user inputs
+    assert "no user in DB" == runTest(
+        fromPhone='+114142; drop table users', smsBody='adsfasdf')
+
+    assert "no eligible vehicle" == runTest(
+        fromPhone='+18777804236', smsBody='1234')
+    assert "not a number" == runTest(
+        fromPhone='+16469576453', smsBody='asdf')
+    assert "negative" == runTest(
+        fromPhone='+16469576453', smsBody='-0110')
+    assert "too large" == runTest(
+        fromPhone='+16469576453', smsBody='11923481932489132498')
+    assert "less than recorded miles" == runTest(
+        fromPhone='+16469576453', smsBody='1')
+    assert "not a number" == runTest(
+        fromPhone='+19178487133', smsBody='hello')
+    assert "not a number" == runTest(
+        fromPhone='+19178487133', smsBody='123; drop table users')
+    assert "negative" == runTest(
+        fromPhone='+19178487133', smsBody='-100')
+    assert "too large" == runTest(
+        fromPhone='+19178487133', smsBody='1293128938931289')
+    assert "less than recorded miles" == runTest(
+        fromPhone='+19178487133', smsBody='9')
+
+    # good inputs "today" is 9/15/2025
+    assert "no input errors" == runTest(
+        fromPhone="+18006969008", smsBody="300.25")
+    assert "no input errors" == runTest(
+        fromPhone="+17974087089", smsBody="2.6")
+    assert "no input errors" == runTest(
+        fromPhone="+19177978174", smsBody="5")
+    assert "no input errors" == runTest(
+        fromPhone="+100", smsBody="6")

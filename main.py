@@ -12,20 +12,51 @@ ODOPROMPTINTERVAL = 7  # the number of days to wait before prompting a regular O
 
 app = Flask(__name__)
 
+# function to get today's date in YYYY-mm-dd
+
 
 def getDateToday():
     return date.today()
 
 
-# function to get today's date in YYYY-mm-dd
 def getDateTodayStr():
     return getDateToday().strftime('%Y-%m-%d')
+
+
+def strIsFloat(str=""):
+    try:
+        float(str)
+    except ValueError:
+        return False
+    else:
+        return True
+
+
+# get Max Value for Column in table
+# returns the theoretical maximum value for a given column in a given table schema
+# if the data type is a decimal. (flesh this out later to more data types
+# if it serves a purpose.)
+def getMaxTheoValueDecimal(tableName="", columnName=""):
+    result = querySQL(f"""
+        SELECT numeric_precision, numeric_scale
+        FROM information_schema.columns
+        WHERE table_schema = "service_reminders_app"
+        AND table_name = "{tableName}"
+        AND column_name = "{columnName}"
+        AND data_type = "decimal"
+    """)
+    if result == []:
+        return "Column is not Decimal type"
+    else:
+        digitsLeftDecimal = result[0][0] - 1
+        digitsRightDecimal = result[0][1]
+        return 10 ** digitsLeftDecimal - 10 ** (-1 * digitsRightDecimal)
 
 ### custom exceptions ###
 
 
+# exception thrown when a given row is not found in DB
 class NotInDatabaseError(Exception):
-    # exception thrown when a given row is not found in DB
     pass
 
 
@@ -66,17 +97,44 @@ def sendSMS(recip="", msg=""):
     )
 
 
-# for given user id, prompt the user for only the most out of date veh odo
-# return
-def promptUserForOneVeh(usrID=0):
-    try:
-        queryResult = querySQL(stmt=f'''
-            SELECT vehNickname, make, model, year FROM vehicles WHERE userID = {usrID} ORDER BY datelastODO ASC LIMIT 1
+# get eligible vehicle for the user.
+def getUserUpdateVehicle(userID):
+    result = querySQL(f'''
+        SELECT vehicleID
+        FROM vehicles
+        WHERE userID = {userID}
+        AND (dateLastODO IS NULL OR miles IS NULL)
+        LIMIT 1
+    ''')
+
+    if result != []:
+        return result[0][0]
+    else:
+        result = querySQL(f'''
+            SELECT vehicleID FROM vehicles
+            WHERE userID = {userID}
+            AND DATEDIFF('{getDateToday()}', dateLastODO) > {ODOPROMPTINTERVAL}
+            ORDER BY dateLastODO ASC
+            LIMIT 1
         ''')
-        (nick, make, modl, year) = queryResult[0]
-    except IndexError:
-        raise NotInDatabaseError(
-            "called promptUserForOneVeh with a userID not in the database")
+        if result == []:
+            return None
+        else:
+            return result[0][0]
+
+
+def promptUserForOneVeh(usrID=0):
+    vehID = getUserUpdateVehicle(usrID)
+    if vehID is None:
+        raise NotInDatabaseError("no eligible vehicle found for user.")
+
+    queryResult = querySQL(stmt=f'''
+            SELECT vehNickname, make, model, year 
+            FROM vehicles 
+            WHERE vehicleID = {vehID}
+    ''')
+
+    nick, make, modl, year = queryResult[0]
 
     # we need the user name and the phone number from the user.
     queryResult = querySQL(stmt=f'''
@@ -92,7 +150,7 @@ def promptUserForOneVeh(usrID=0):
 
 
 # def:
-# handle a received message that is an odometer reading.
+# update a vehicle odometer in database with the given odo
 # this should check that the new ODO reading is greater than the previous ODO reading. Should reply to the user confirming the reading or prompting again if the reading contains an error.
 # Calculate and store a new average miles per day given the prev ODO reading and the days since the last ODO reading.
 def updateODO(vehID=0, newODO=0):
@@ -123,6 +181,7 @@ def updateODO(vehID=0, newODO=0):
         curMiles = 0
         curOdoDate = today
         curMilesPerDay = 0
+
     elif curMiles > newODO:
         raise ValueError(
             "cannot update the mileage with a lesser number than the current value")
@@ -275,76 +334,81 @@ def dailyMaint():
     """)
 
 
-# takes the phone number and the content and then passes the appropriate vehicleID and the content (which shoudl be odo) to the updateODO function.
-@app.route("/receive_sms", methods=['POST'])
-def receiveOdoMsg():
-    def parseRequest():
-        def getPhone():
-            return request.form['From']
-
-        def getVehID(phone=""):
-            try:
-                # get a vehicle id which belongs to the user who belongs to the phone number, which is the most out of date vehicle
-                res = querySQL(f"""
-                    SELECT vehicleID FROM vehicles WHERE
-                        (vehicles.userID=(SELECT userID FROM users WHERE users.phone={phone}))
-                        AND DATEDIFF('{getDateTodayStr()}', vehicles.dateLastODO) > '{ODOPROMPTINTERVAL}'
-                        ORDER BY dateLastODO ASC LIMIT 1
-                """)
-                return res[0]
-            except Exception:
-                raise Exception("There was a problem querying the database.")
-
-        def getODO():
-            result = request.form['Body']
-            try:
-                result = float(result)
-                if result < 0:
-                    raise Exception("odo value can't be negative.")
-                else:
-                    return result
-            except ValueError:
-                print(f"request body contains a non-number")
-            except Exception:
-                print(
-                    f"An exception occurred while parsing the body of the incoming SMS")
-
-        phone = getPhone()
-        vehID = getVehID(phone)
-        odo = getODO()
-
-        return vehID, odo
-
-    try:
-        vehID, odo = parseRequest()
-        resp = MessagingResponse()
-        updateODO(vehID, odo)
-        resp.message(f"Odomoeter for [veh] updated to {odo}.")
-        # Return the TwiML (as XML) response
-        return Response(str(resp), mimetype='text/xml')
-    except:
-        print("Error in the request or internal handling.")
-        errorResponse = MessagingResponse()
-        errorResponse.message("An error occurred. Try again.")
-        return Response(str(errorResponse), mimetype='text/xml')
-
-
 @app.route("/", methods=['GET'])
 def serveHome():
     return "Service Reminders Homepage"
 
 
-if __name__ == '__main__':
-    # res1 = promptUserForOneVeh(usrID=0)
-    try:
-        updateODO(0, 0)
-    except:
-        raise
+# takes the phone number and the content and then passes the appropriate vehicleID and the content (which shoudl be odo) to the updateODO function.
+@app.route("/receive_sms", methods=['POST'])
+def receiveOdoMsg():
+    # don't worry about any input handling except avoiding
+    # SQL injection using %s and checking if the user is
+    # not in the DB.
+    # raises NotInDatabaseError
+    def parseRequest():
+        # we only care about POSTs from TWILIO so anything else can go ahead and throw some sort of exception
+        # just no SQL injection, so use %s
+        phone = request.form['From']
+        res = querySQL(stmt="""
+            SELECT userID FROM users
+            WHERE phone = %s
+        """, val=(phone,))
+        if res == []:
+            raise NotInDatabaseError(f"{phone} not in DB")
 
+        userID = res[0][0]
+
+        vehID = getUserUpdateVehicle(userID)
+        odo = request.form['Body']
+
+        return vehID, odo
+
+    resp = MessagingResponse()
+    maxODO = getMaxTheoValueDecimal(tableName="vehicles", columnName="miles")
+
+    try:
+        vehID, odo = parseRequest()
+    except NotInDatabaseError:
+        errStr = "your phone number is not associated with Service Reminders."
+    else:
+        if not vehID:
+            errStr = "none of your vehicles need an odometer update."
+        elif not strIsFloat(odo):
+            errStr = "message is not a number"
+        elif float(odo) < 0:
+            errStr = "can't be negative."
+        elif float(odo) > maxODO:
+            errStr = f"number can't be more than {maxODO}"
+        else:
+            # lastly, try to update vehicle's ODO and check for a valueerror
+            try:
+                updateODO(vehID=vehID, newODO=odo)
+            except ValueError:
+                errStr = "must be more than your vehicle's last recorded miles."
+            else:
+                errStr = None
+
+    if errStr:
+        resp.message(f"Error updating Odometer: {errStr}")
+    else:
+        res = querySQL(
+            stmt="""
+                SELECT vehNickname, year, make, model FROM vehicles
+                WHERE vehicleID = %s
+            """,
+            val=(vehID,)
+        )
+        nick, year, make, model = res[0]
+        resp.message(
+            f"Successfully updated the odometer for {nick if nick else "your " + str(year) + " " + make + " " + model}.")
+
+    return Response(str(resp), mimetype='text/xml')
+
+
+if __name__ == '__main__':
     from sys import argv
-    # app.run(port=3000)
-    # dailyMaint()
-    # updateServiceDone(1, 110200.1)
+    app.run(port=3000)
     # if len(argv) == 2:
     #     run(port=int(argv[1]))
     # else:

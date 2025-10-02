@@ -40,14 +40,16 @@ def createTables(connection, cursor):
             make VARCHAR(255),
             model VARCHAR(255),
             year YEAR,
-            miles DECIMAL(8,1) DEFAULT NULL CHECK (miles >= 0),
+            miles DECIMAL(8,1) DEFAULT NULL,
             dateLastODO DATE DEFAULT NULL,
             milesPerDay DOUBLE,
             estMiles DOUBLE,
             PRIMARY KEY (vehicleID),
-            FOREIGN KEY (userID) REFERENCES users(userID)
+            FOREIGN KEY (userID) REFERENCES users(userID),
+            CONSTRAINT miles_positive CHECK ((miles >= 0))
         )
     """)
+    # CONSTRAINT miles_less_than_max CHECK ((miles <= 9999999.9))
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS serviceSchedule (
@@ -78,7 +80,11 @@ def loadSampleData(connection, cursor):
         ("ryanhess", "+18777804236"),
         ("stephenhess", "+16469576453"),
         ("brianhess", "+19177978174"),
-        ("sorayahess", "+19178487133")
+        ("sorayahess", "+19178487133"),
+        ("bobBurger", "+18006969008"),
+        ("holdenHess", "+17974087089"),
+        ("detectivemiller", "+12345678901"),
+        ("userWithNoOdo", "+100")
     ]
     cursor.executemany(sampleUsersStatement, sampleUsers)
 
@@ -89,14 +95,25 @@ def loadSampleData(connection, cursor):
     sampleVehicles = [
         (1, "Moose", "Lexus", "Rx350", "2015",
          "110000", "2025-9-13", "20.3", "110020.3"),
-        (1, "Yoda", "Toyota", "Rav4", "2011", "125920", "2025-9-13", "100.4", "0"),
+        (1, "Yoda", "Toyota", "Rav4", "2011", "125920", "2025-9-14", "100.4", "0"),
         (2, None, "Subaru", "Crosstrek", "2019",
-         "10", "2025-9-10", "200.1", "210.1"),
+         "10", "2025-9-05", "200.1", "210.1"),
         (3, None, "Subaru", "Outback", "2025", None, None, None, None),
+        (3, None, "Subaru", "Loyale",
+         "1991", "1234124.5", "2010-12-24", ".1", "2.5"),
         (4, "Grandma", "Volkwagen", "Jetta TDI Sportwagen",
          "2014", "140020", "2024-7-13", "234", "10"),
         (4, "Grandpa", "Subaru", "Forester",
-         "2005", "250120", "2025-09-11", None, "534")
+         "2005", "250120", "2025-09-11", None, "534"),
+        (5, "Mazda", "Mazda", "CX-5", "2021", "214", "2025-9-7", "10", "20"),
+        (6, "Hess Truck", "Hess", "Truck", "2025", "2.4", "2025-9-7", ".1", "2.5"),
+        (6, "truck", "Hess", "Truck", "2025", "2.4", "2025-9-8", ".1", "2.5"),
+        (7, "millertruck1", "Hess", "Truck",
+         "2025", "2.4", "2025-9-1", ".1", "2.5"),
+        (7, "millertruck2", "Hess", "Truck",
+         "2025", "2.4", "2025-9-1", ".1", "2.5"),
+        (8, "no odo", "make", "model", "1999", None, None, None, None)
+
     ]
     cursor.executemany(sampleVehiclesStatement, sampleVehicles)
 
