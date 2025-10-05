@@ -8,6 +8,7 @@ import pytest_mock
 from datetime import date, timedelta
 from twilio.twiml.messaging_response import MessagingResponse
 from contextlib import nullcontext as does_not_raise
+# import flask
 from flask import Response
 import xml.etree.ElementTree as ET  # for parsing responses from routes.
 
@@ -143,6 +144,7 @@ def test_promptUserForOneVeh(mocker):
 #   updates the milesPerDay to the correct value.
 # raises NotInDatabaseError when vehicle is not in the database
 # raises ValueError if the inputted miles are less than the ODO value on record.
+# raises TypeError if the parameter cannot be typed to Float
 def test_updateODO(mocker):
     buildSampleDB()
 
@@ -212,6 +214,9 @@ def test_updateODO(mocker):
 
     with raises(ValueError):
         runTest(5, 200000.19001)
+
+    with raises(TypeError):
+        runTest(13, 'haha not a number')
 
 
 # check that the service-due-flag is now false.
@@ -498,11 +503,6 @@ def test_dailyMaint(mocker):
         promptedUsersIntrospect = []
 
 
-def test_homepage(client):
-    response = client.get("/")
-    assert response.status_code == 200
-
-
 # def test_receiveOdoMsg
 # utilize the client and mocker features to simulate a post to the route
 # and then mock the call to updateODO to check the function's work.
@@ -744,3 +744,103 @@ def test_receiveOdoMsg(client, mocker):
         fromPhone="+19177978174", smsBody="5")
     assert "no input errors" == runTest(
         fromPhone="+100", smsBody="6")
+
+
+# test that all of the web routes load successfully.
+def test_webUserRoutes(client):
+    response = client.get('/')
+    assert response.status_code == 200
+
+    response = client.get('/Users')
+    assert response.status_code == 200
+
+    response = client.get('/Users/New')
+    assert response.status_code == 200
+
+    response = client.post('/Users/New')
+
+    response = client.get('/Users/1')
+    assert response.status_code == 200
+
+
+# simple createUser function
+# check that the user is created.
+# testing input filtering is coming soon.
+# test that the new user is in the database and that status code is 200
+def test_HandleNewUser(client, mocker):
+    spiedUser = spiedPhone = spiedErrMsg = None
+
+    def mock_render_template(unusedTemplateFile="", user="", phone="", error=False, errorMessage=""):
+        nonlocal spiedUser, spiedPhone, spiedErrMsg
+
+        spiedUser = user
+        spiedPhone = phone
+        spiedErrMsg = errorMessage
+
+        return Response(status=200)
+
+    renderMock = mocker.patch('main.render_template')
+    renderMock.side_effect = mock_render_template
+
+    # checks that username is in db and that its phone is 'phone'
+    # if either is not true, return false.
+    # should be passed sanitized and properly formatted data or
+    # it will return false.
+    def checkUserInDB(usrN, phone):
+        res = main.querySQL(stmt=f'''
+            SELECT userID From users
+            WHERE username = '{usrN}'
+        ''')
+
+        if res == []:
+            return False
+        else:
+            userID = res[0][0]
+            res = main.querySQL(stmt=f'''
+                SELECT phone FROM users
+                WHERE userID = '{userID}'
+            ''')
+            return res[0][0] == str(phone)
+
+    # runs some tests inside and returns the error message that would be
+    # displayed so inputs can be asserted outside.
+    # if no error, returns 0 so that "assert not runTest()" is asserting that
+    # the function runs with no errors.
+    def runTest(usr, phone):
+        nonlocal spiedUser, spiedPhone, spiedErrMsg
+        route = '/Users/New'
+        form = {
+            'username': usr,
+            'phone': phone
+        }
+
+        response = client.post(path=route, data=form)
+
+        # no matter what the server should respond with a webpage.
+        # in this case, I am artificially generating responses
+        # but if it gets to render_template without errors I think that
+        # is enough for the test function to test.
+        assert response.status_code == 200
+
+        if spiedErrMsg:
+            msg = spiedErrMsg
+        else:
+            assert checkUserInDB(spiedUser, spiedPhone)
+            msg = 0
+
+        spiedUser = spiedPhone = spiedErrMsg = None
+
+        return msg
+
+    # asserting a username that already exists
+    assert 'username is already in use' in runTest(
+        usr='ryanhess', phone='1414144444')
+
+    # asserting a phone number that already exists
+    assert 'phone number is already in use' in runTest(
+        usr='thepinkpanther', phone='+18777804236'
+    )
+
+    # asserting correct operation with good inputs
+    assert not runTest(usr='newUserTest123', phone='+12838812931')
+    assert not runTest(usr='###fsf23', phone='+14838812931')

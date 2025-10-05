@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block title %}{%
+if vehicle['nick']:
+vehicle['nick']
+else:
+vehicle['year'] + ' ' +
+vehicle['make'] + ' ' +
+vehicle['model']
+%}{% endblock %}
+
+{% block content %}
+<h1></h1>
+<table>
+    <tr>
+        <th>Description</th>
+        <th>Service Interval</th>
+        <th>Action</th>
+    </tr>
+    {% for item in serviceSched %}
+    <tr>
+        <td>{{ item['desc'] }}</td>
+        <td>{{ item['interval'] }}</td>
+        <td><a href=''>Edit Item</a></td>
+    </tr>
+    {% endfor %}
+    <tr><a href='{{ url_for("newServiceUI", vehicleID=vehicle["id"]) }}'>Add Service Item</a></tr>
+</table>
+{% endblock %}

@@ -3,9 +3,11 @@ from decimal import *
 from datetime import date
 # from urllib.parse import parse_qs
 from mysql.connector import connect, Error
-from flask import Flask, request, Response
+from flask import Flask, request, Response, render_template
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
+import DB_Builder
+
 
 ODOPROMPTINTERVAL = 7  # the number of days to wait before prompting a regular ODO reading
 
@@ -54,9 +56,18 @@ def getMaxTheoValueDecimal(tableName="", columnName=""):
 
 ### custom exceptions ###
 
-
 # exception thrown when a given row is not found in DB
+
+
 class NotInDatabaseError(Exception):
+    pass
+
+
+class FormInputError(Exception):
+    pass
+
+
+class DuplicateItemError(Exception):
     pass
 
 
@@ -76,7 +87,16 @@ def querySQL(stmt="", val="", many=False):
                 c1.executemany(stmt, val)
             else:
                 c1.execute(stmt, val)
+
             result = c1.fetchall()
+
+            # if the statement begins with INSERT (not case sensitive)
+            # get the last inserted primary key to return.
+            # and toss whatever was in the cursor before.
+            if 'INSERT INTO'.lower() in stmt.lower() or \
+                    'UPDATE'.lower() in stmt.lower():
+                result = c1.lastrowid
+
             connection.commit()
 
             return result
@@ -129,8 +149,8 @@ def promptUserForOneVeh(usrID=0):
         raise NotInDatabaseError("no eligible vehicle found for user.")
 
     queryResult = querySQL(stmt=f'''
-            SELECT vehNickname, make, model, year 
-            FROM vehicles 
+            SELECT vehNickname, make, model, year
+            FROM vehicles
             WHERE vehicleID = {vehID}
     ''')
 
@@ -155,6 +175,11 @@ def promptUserForOneVeh(usrID=0):
 # Calculate and store a new average miles per day given the prev ODO reading and the days since the last ODO reading.
 def updateODO(vehID=0, newODO=0):
     today = getDateToday()
+
+    try:
+        newODO = float(newODO)
+    except ValueError as e:
+        raise TypeError('updateODO called with not a number.')
 
     if newODO is None:
         newODO = 0
@@ -257,7 +282,8 @@ def notifyOneService(serviceItemID):
     nick, year, make, model = res[0]
 
     msg = f"""
-        {username}, {nick if nick != None else ' your ' + str(year) + ' ' + str(make) + ' ' + str(model)}
+        {username}, {nick if nick != None else ' your ' +
+                     str(year) + ' ' + str(make) + ' ' + str(model)}
         is due for item: "{desc}" at {dueAt} miles.
     """
 
@@ -318,7 +344,7 @@ def dailyMaint():
     # now milesPerDay is never null.
     queryForNotNull = f"""
         UPDATE vehicles
-        SET estMiles = (vehicles.miles + 
+        SET estMiles = (vehicles.miles +
             vehicles.milesPerDay * DATEDIFF('{getDateTodayStr()}', vehicles.dateLastODO))
         WHERE miles IS NOT NULL
     """
@@ -334,10 +360,7 @@ def dailyMaint():
     """)
 
 
-@app.route("/", methods=['GET'])
-def serveHome():
-    return "Service Reminders Homepage"
-
+### API Routes ###
 
 # takes the phone number and the content and then passes the appropriate vehicleID and the content (which shoudl be odo) to the updateODO function.
 @app.route("/receive_sms", methods=['POST'])
@@ -406,10 +429,303 @@ def receiveOdoMsg():
     return Response(str(resp), mimetype='text/xml')
 
 
+### WEB UI handler functions ###
+# do all the input handling here. if bad input, raise an exception
+def handleNewUserPOST():
+    username = request.form['username']
+    phone = request.form['phone']
+
+    # input handling and cleaning up here.
+    if 'f-you' in phone or 'whatever' in username:
+        raise FormInputError('you messed up, ya doof!')
+
+    # now check if the username or phone number already exists and raise an error for each. Can't have any duplicate phone numbers.
+    res = querySQL('''
+        SELECT userID FROM users
+        WHERE username = %s
+    ''', val=(username,))
+    if res != []:
+        raise DuplicateItemError('That username is already in use.')
+
+    res = querySQL('''
+        SELECT userID FROM users
+        WHERE phone = %s
+    ''', val=(phone,))
+    if res != []:
+        raise DuplicateItemError('That phone number is already in use')
+
+    # finally, with the cleaned and validated data, add it to the database and return the cleaned data.
+    try:
+        newUserID = querySQL(stmt='''
+            INSERT INTO users (username, phone)
+            VALUES (%s, %s)
+        ''', val=(username, phone))
+    except Exception as e:
+        # DEBUG
+        raise e
+
+    return {'userID': newUserID, 'username': username, 'phone': phone}
+
+
+# in these cases, we want to check that it is a valid ID and that
+# it exists in the DB.
+def validateUserIdInURL(userID):
+    try:
+        userID = int(userID)
+    except ValueError:
+        raise ValueError('userID parameter not a valid userID.')
+
+    res = querySQL(f'''
+        SELECT userID FROM users
+        WHERE userID = {userID}
+    ''')
+    if res == []:
+        raise NotInDatabaseError(
+            f'user with ID {userID} is not in the database.')
+
+    return userID
+
+
+# in these cases, we want to check that it is a valid ID and that
+# it exists in the DB.
+def validateVehIdInURL(vehID):
+    try:
+        vehID = int(vehID)
+    except ValueError:
+        raise ValueError('vehicleID parameter not valid.')
+
+    res = querySQL(f'''
+        SELECT vehicleID FROM vehicles
+        WHERE vehicleID = {vehID}
+    ''')
+    if res == []:
+        raise NotInDatabaseError(
+            f'vehicle with ID {vehID} is not in the database.')
+
+    return vehID
+
+
+# validates the post request, adds data to DB,
+# returns the nickname, year make model for the car
+# raises exceptions if bad input
+def handleNewVehiclePOST(userID):
+    print(request.headers)
+    print(request.form)
+
+    try:
+        userID = validateUserIdInURL(userID)
+    except Exception as e:
+        raise e
+
+    # nickname
+    nick = request.form['nickname']
+
+    # year
+    # check that it is present
+    # check that it will convert to a YEAR type in SQL
+    year = request.form['year']
+    if year == '':
+        raise FormInputError('Missing a year for the vehicle.')
+
+    # try casting the input into a SQL year datatype
+    res = querySQL('''
+        SELECT CAST(%s AS YEAR)
+    ''', val=(year, ))
+    if not res[0][0]:
+        raise FormInputError('please enter a valid year')
+
+    # make
+    make = request.form['make']
+    if make == '':
+        raise FormInputError('Missing a make for the vehicle.')
+
+    # model
+    model = request.form['model']
+    if model == '':
+        raise FormInputError('Missing a model for the vehicle.')
+
+    result = querySQL(stmt='''
+        INSERT INTO vehicles
+        (userID, vehNickname, make, model, year)
+        VALUES (%s, %s, %s, %s, %s)
+    ''', val=(userID, nick, make, model, year))
+    newVehID = result
+
+    # now try to add the odometer reading.
+    # updateODO
+    miles = request.form['miles']
+    if len(miles) > 0:
+        try:
+            updateODO(vehID=newVehID, newODO=miles)
+        except TypeError:
+            raise FormInputError('miles is not a number.')
+        except Exception as e:
+            breakpoint()
+            raise e
+
+    # for now dont check for duplicate vehicles.
+
+    # lastly get the username for the id so it can show
+    # up in the confirmation.
+    res = querySQL('''
+        SELECT username FROM users
+        WHERE userID = %s
+    ''', val=(userID, ))
+    username = res[0][0]
+
+    return {'username': username, 'nick': nick, 'make': make, 'model': model, 'year': year}
+
+    # miles, if it is empty string, then leave miles NULL
+
+
+### WEB UI ROUTES ###
+
+# Serves the homepage, which consists of a welcome message
+# and nav links to Home and Users
+
+
+@app.route("/", methods=['GET'])
+def serveHome():
+    return render_template('index.html')
+
+
+# USERS #
+
+# serves the Users main page
+# Which consists of a title,
+# a list of users which are links to /Users/[username]
+# and a link called "New User" which links to /Users/New
+@app.route("/Users", methods=['GET'])
+def serveUsersList():
+    # retrieve a list of usernames
+    res = querySQL('SELECT userID, username FROM users')
+    users = []
+
+    for item in res:
+        user = {'userID': item[0], 'username': item[1]}
+        users.append(user)
+
+    return render_template('users.html', users=users)
+
+
+# handles two functions in one:
+@app.route("/Users/New", methods=['GET', 'POST'])
+def newUserUI():
+    if request.method == 'GET':
+        return render_template('new_user_form.html', error=False)
+    elif request.method == 'POST':
+        try:
+            userInfo = handleNewUserPOST()
+        except FormInputError as f:
+            return render_template('new_user_form.html', error=True, errorMessage=str(f))
+        except DuplicateItemError as d:
+            return render_template('new_user_form.html', error=True, errorMessage=str(d))
+
+        print(request.form)
+        return render_template('new_user_submitted.html', userInfo=userInfo)
+    else:
+        pass
+
+
+# show individual user
+# Should show a list of vehicles by nickname,
+# year, make model. Clicking on a vehicle takes
+# you to the page for that vehicle.
+# get the list of vehicles for that user,
+# where each veh is a dictionary of id, nickname, make, model, year, miles.
+@app.route("/Users/<userID>", methods=['GET'])
+def serveSingleUserPage(userID):
+    # retrieve the user given by userID, meaning a list of veh for that user.
+
+    # get the username of the user to put in the header. Note that the userID param
+    # is a user-entered value through the URL.
+    try:
+        userID = validateUserIdInURL(userID)
+    except Exception as e:
+        # if there is any issue with the input here, return page not found.
+        return Response(status=404)
+
+    res = querySQL(f'''
+        SELECT username FROM users
+        WHERE userID = {userID}
+    ''')
+    username = res[0][0]
+
+    res = querySQL('''
+        SELECT vehicleID, vehNickname, make,
+            model, year, miles, dateLastOdo
+        FROM vehicles
+        WHERE userID = %s
+    ''', val=(userID, ))
+    vehicles = []
+
+    for item in res:
+        veh = {
+            'id': item[0],
+            'nick': item[1],
+            'make': item[2],
+            'model': item[3],
+            'year': item[4],
+            'miles': item[5],
+            'dateLastOdo': item[6]
+        }
+        vehicles.append(veh)
+
+    return render_template('single_user.html', user={'id': userID, 'name': username}, vehicles=vehicles)
+
+
+# VEHICLES #
+@app.route("/Users/<userID>/New-Vehicle", methods=['GET', 'POST'])
+def newVehicleUI(userID):
+    try:
+        userID = validateUserIdInURL(userID)
+    except:
+        return Response(status=404)
+
+    if request.method == 'GET':
+        return render_template('new_vehicle_form.html', userID=userID, error=False)
+
+    elif request.method == 'POST':
+        try:
+            vehInfo = handleNewVehiclePOST(userID)
+        except FormInputError as f:
+            return render_template('new_vehicle_form.html', userID=userID, error=True, errorMessage=str(f))
+        except DuplicateItemError as d:
+            return render_template('new_vehicle_form.html', userID=userID, error=True, errorMessage=str(d))
+        except Exception as e:
+            print(e)
+            return Response(status=400)
+
+        return render_template('new_vehicle_submitted.html', userID=userID, vehInfo=vehInfo)
+    else:
+        pass
+
+
+# should show the vehicle info in one div
+# then a button to add a service item
+# then another table with all the service items listed
+@app.route('/Vehicles/<vehicleID>', methods=['GET'])
+def serveSingleVehiclePage(vehicleID):
+    try:
+        vehicleID = validateVehIdInURL(vehicleID)
+    except:
+        return Response(status=404)
+    vehicle = {}
+    serviceSched = {}
+    return render_template('single_vehicle.html', vehicle=vehicle, serviceSched=serviceSched)
+
+
+@app.route('/Vehicles/<vehicleID>/New-Service', methods=['GET', 'POST'])
+def serveNewServiceForm(vehicleID):
+    return Response(status=200)
+
+
+def configHTMLAutoReload():
+    app.jinja_env.auto_reload = True
+    app.config['TEMPLATES_AUTO_RELOAD'] = True
+
+
 if __name__ == '__main__':
     from sys import argv
-    app.run(port=3000)
-    # if len(argv) == 2:
-    #     run(port=int(argv[1]))
-    # else:
-    #     run()
+    configHTMLAutoReload()
+    app.run(port=3000, debug=True)

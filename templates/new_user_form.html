@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}New User{% endblock %}
+
+{% block content %}
+<h1>New User</h1>
+{% if error %}
+<div style="color:red">Please try again. {{errorMessage}}</div>
+{% endif %}
+<form action="{{ url_for('newUserUI') }}" method="POST">
+    <label for="username">Username</label>
+    <input type="text" id="username" name="username" required>
+    <br>
+    <br>
+    <label for="phone">Mobile Phone Number</label>
+    <input type="text" id="phone" name="phone" required>
+    <br>
+    <input type="submit" value="Submit">
+</form>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+
+{% block title %}Confirmation{% endblock %}
+
+{% block content %}
+<h1>New Vehicle Submitted.</h1>
+<br>
+<p><a href='{{ url_for("serveSingleUserPage", userID=userID) }}'>{{ vehInfo['username'] }},</a></p>
+<p>{% if vehInfo['nickname'] %}{{ vehInfo['nickname'] }}{% else %}Your {{
+    vehInfo['year'] + ' ' + vehInfo['make'] + ' ' + vehInfo['model']
+    }}{% endif %} has been added to your Vehicles.</p>
+<br>
+<p>Add service items on its vehicle page.</p>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ user['name'] }}{% endblock %}
+
+{% block content %}
+<h1>{{ user['name'] }}</h1>
+<p><a href='{{ url_for("newVehicleUI", userID=user["id"]) }}'>Add Vehicle</a></p>
+<table>
+    <tr>
+        <th>Nickname</th>
+        <th>Make</th>
+        <th>Model</th>
+        <th>Year</th>
+        <th>Miles</th>
+        <th>Date Updated</th>
+        <th>Action</th>
+    </tr>
+    {% for veh in vehicles %}
+    <tr>
+        <td>{{ veh['nick'] }}</td>
+        <td>{{ veh['make'] }}</td>
+        <td>{{ veh['model'] }}</td>
+        <td>{{ veh['year'] }}</td>
+        <td>{{ veh['miles'] }}</td>
+        <td>{{ veh['dateLastOdo'] }}</td>
+        <td><a href='{{ url_for("serveSingleVehiclePage", vehicleID=veh["id"]) }}'>Edit Vehicle</a></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endblock %}

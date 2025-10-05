@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+
+{% block title %}Confirmation{% endblock %}
+
+{% block content %}
+<h1>New User Submitted.</h1>
+<p>Username is <a href='{{ url_for("serveSingleUserPage", userID=userInfo["userID"]) }}'>{{
+        userInfo['username'] }}</a> and Phone number is {{ userInfo['phone'] }}</p>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block title %}New Vehicle{% endblock %}
+
+{% block content %}
+<h1>New Vehicle</h1>
+{% if error %}
+<div style="color:red">Please try again. {{errorMessage}}</div>
+{% endif %}
+<form action="{{ url_for('newVehicleUI', userID=userID) }}" method="POST">
+    <label for="nickname">Vehicle Nickname (optional)</label>
+    <input type="text" id="nickname" name="nickname">
+    <br>
+    <label for="year">Year</label>
+    <input type="text" id="year" name="year" required>
+    <br>
+    <label for="make">Make</label>
+    <input type="text" id="make" name="make" required>
+    <br>
+    <label for="model">Model</label>
+    <input type="text" id="model" name="model" required>
+    <br>
+    <label for="miles">Current Odometer Reading (you can add this later)</label>
+    <input type="text" id="miles" name="miles">
+    <br>
+    <input type="submit" value="Submit">
+</form>
+{% endblock %}
