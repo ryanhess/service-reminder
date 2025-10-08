@@ -577,7 +577,7 @@ def handleNewVehiclePOST(userID):
     ''', val=(userID, ))
     username = res[0][0]
 
-    return {'username': username, 'vehicleID': newVehID, 'displayName': dispName}
+    return {'username': username, 'id': newVehID, 'displayName': dispName}
 
     # miles, if it is empty string, then leave miles NULL
 
@@ -609,7 +609,7 @@ def handleNewServicePOST(vehicleID: int):
 
     # try casting the input into a SQL year datatype
     res = querySQL('''
-        SELECT CAST(%s AS YEAasdfR)
+        SELECT CAST(%s AS YEAR)
     ''', val=(year, ))
     if not res[0][0]:
         raise FormInputError('please enter a valid year')
@@ -771,8 +771,35 @@ def serveSingleVehiclePage(vehicleID):
         vehicleID = validateVehIdInURL(vehicleID)
     except:
         return Response(status=404)
-    vehicle = {'id': 1, 'nick': 'nickname', 'make': 'lexus', 'model': 'rx', 'year': '1235'}
-    serviceSched = {}
+    
+    res = querySQL(f'''
+        SELECT vehicleID, displayName, miles, dateLastODO, estMiles
+        FROM vehicles
+        WHERE vehicleID = {vehicleID}
+    ''')
+    res = res[0]
+    vehicle = {
+        'id': res[0],
+        'displayName': res[1], 
+        'miles': res[2], 
+        'dateLastODO': res[3],
+        'estMiles': res[4]
+    }
+
+    res = querySQL(f'''
+        SELECT description, serviceInterval, dueAtMiles
+        FROM serviceSchedule
+        WHERE vehicleID = {vehicleID}
+    ''')
+
+    serviceSched = []
+    for result in res:
+        serviceSched.append({
+            'description': result[0],
+            'serviceInterval': result[1],
+            'dueAtMiles': result[2]
+        }) 
+    
     return render_template('single_vehicle.html', vehicle=vehicle, serviceSched=serviceSched)
 
 
