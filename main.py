@@ -701,9 +701,9 @@ def newVehicleUI(userID):
         pass
 
 
-@app.route('/Vehicles/<vehicleID>', methods=['GET', 'POST '])
-def serveSingleVehiclePage(vehicleID):
-    return
+@app.route('/Vehicles/<vehicleID>/Update-Odometer', methods=['GET', 'POST'])
+def serveUpdateOdoForm(vehicleID):
+    return Response(status=200)
 
 
 # should show the vehicle info in one div
