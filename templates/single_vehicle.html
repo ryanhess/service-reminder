@@ -5,16 +5,13 @@
 {% endblock %}
 
 {% block content %}
-<h1>{{ vehicle['dispName'] }}</h1>
-<div id="veh-info">
-
-</div>
+<h1>{{ vehicle['displayName'] }}</h1>
 <div id="odo-info">
     {% if odoConfirmation %}
     <h3 style="color:green">Successfully updated the odometer.</h3>
     {% endif %}
     <h3>Odometer Reading from {{ vehicle['dateLastODO'] }}: {{ vehicle['miles'] }} | Current Miles (estimated): {{
-        vehicle['odoEst'] }} | <a href="{{ url_for('serveUpdateOdoForm', vehicleID=vehicle['id']) }}">Update Odometer
+        vehicle['estMiles'] }} | <a href="{{ url_for('serveUpdateOdoForm', vehicleID=vehicle['id']) }}">Update Odometer
             Reading</a></h3>
 </div>
 <div id="serv-sched">
@@ -34,7 +31,7 @@
             <td><a href=''>Edit Item</a>|<a href=''>Update Service Done</a></td>
         </tr>
         {% endfor %}
-        <tr><a href='{{ url_for("serveNewServiceForm", vehicleID=vehicle["id"]) }}'>Add Service Item</a></tr>
+        <tr><a href='{{ url_for("newServiceUI", vehicleID=vehicle["id"]) }}'>Add Service Item</a></tr>
     </table>
 </div>
 {% endblock %}
