@@ -577,7 +577,7 @@ def handleNewVehiclePOST(userID):
     ''', val=(userID, ))
     username = res[0][0]
 
-    return {'username': username, 'nick': nick, 'make': make, 'model': model, 'year': year}
+    return {'username': username, 'vehicleID': newVehID, 'displayName': dispName}
 
     # miles, if it is empty string, then leave miles NULL
 
