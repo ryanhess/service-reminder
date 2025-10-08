@@ -701,6 +701,11 @@ def newVehicleUI(userID):
         pass
 
 
+@app.route('/Vehicles/<vehicleID>', methods=['GET', 'POST '])
+def serveSingleVehiclePage(vehicleID):
+    return
+
+
 # should show the vehicle info in one div
 # then a button to add a service item
 # then another table with all the service items listed

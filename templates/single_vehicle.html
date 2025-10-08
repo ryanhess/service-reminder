@@ -10,18 +10,22 @@ vehicle['model']
 %}{% endblock %}
 
 {% block content %}
-<h1></h1>
+<h1>Service Schedule</h1>
+{% if odoConfirmation %}<h2 style="color:green">Successfully updated the odometer.</h2>{% endif %}
+<h2>Odometer Reading from {{ vehicle['dateLastODO'] }}: {{ vehicle['miles'] }} | Current Miles (estimated): {{ vehicle['odoEst'] }} | <a href="">Update Odometer Reading</a></h2>
 <table>
     <tr>
         <th>Description</th>
         <th>Service Interval</th>
-        <th>Action</th>
+        <th>Due At (miles)</th>
+        <th>Actions</th>
     </tr>
     {% for item in serviceSched %}
     <tr>
         <td>{{ item['desc'] }}</td>
         <td>{{ item['interval'] }}</td>
-        <td><a href=''>Edit Item</a></td>
+        <td>{{ item['dueAtMiles'] }}</td>
+        <td><a href=''>Edit Item</a>|<a href=''>Update Service Done</a></td>
     </tr>
     {% endfor %}
     <tr><a href='{{ url_for("newServiceUI", vehicleID=vehicle["id"]) }}'>Add Service Item</a></tr>
