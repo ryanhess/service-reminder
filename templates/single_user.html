@@ -23,7 +23,7 @@
         <td>{{ veh['year'] }}</td>
         <td>{{ veh['miles'] }}</td>
         <td>{{ veh['dateLastOdo'] }}</td>
-        <td><a href='{{ url_for("serveSingleVehiclePage", vehicleID=veh["id"]) }}'>Edit Vehicle</a></td>
+        <td><a href='{{ url_for("serveSingleVehiclePage", vehicleID=veh["id"]) }}'>Vehicle Info</a></td>
     </tr>
     {% endfor %}
 </table>

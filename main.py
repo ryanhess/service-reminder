@@ -548,6 +548,13 @@ def handleNewVehiclePOST(userID):
     ''', val=(userID, nick, make, model, year))
     newVehID = result
 
+    result = querySQL(stmt=f'''
+        SELECT displayName FROM vehicles
+        WHERE vehicleID = {newVehID}
+    ''')
+
+    dispName = result[0][0]
+
     # now try to add the odometer reading.
     # updateODO
     miles = request.form['miles']
@@ -570,7 +577,7 @@ def handleNewVehiclePOST(userID):
     ''', val=(userID, ))
     username = res[0][0]
 
-    return {'username': username, 'nick': nick, 'make': make, 'model': model, 'year': year}
+    return {'username': username, 'id': newVehID, 'displayName': dispName}
 
     # miles, if it is empty string, then leave miles NULL
 
@@ -588,21 +595,21 @@ def handleNewServicePOST(vehicleID: int):
     # description
     # check that it is present
     desc = request.form['description']
-    if desc == '':
+    if desc == '' or not desc:
         raise FormInputError('missing required parameter "description" in request')
 
     # interval
     # check that its present.
     # try casting into the data type for the column in the DB
     intv = request.form['interval']
-    if intv == '':
+    if intv == '' or not intv:
         raise FormInputError('missing required parameter "interval" in request')
     
 
 
     # try casting the input into a SQL year datatype
     res = querySQL('''
-        SELECT CAST(%s AS YEAR)
+        SELECT CAST(%s AS YEAasdfR)
     ''', val=(year, ))
     if not res[0][0]:
         raise FormInputError('please enter a valid year')
@@ -764,8 +771,35 @@ def serveSingleVehiclePage(vehicleID):
         vehicleID = validateVehIdInURL(vehicleID)
     except:
         return Response(status=404)
-    vehicle = {'id': 1, 'nick': 'nickname', 'make': 'lexus', 'model': 'rx', 'year': '1235'}
-    serviceSched = {}
+    
+    res = querySQL(f'''
+        SELECT vehicleID, displayName, miles, dateLastODO, estMiles
+        FROM vehicles
+        WHERE vehicleID = {vehicleID}
+    ''')
+    res = res[0]
+    vehicle = {
+        'id': res[0],
+        'displayName': res[1], 
+        'miles': res[2], 
+        'dateLastODO': res[3],
+        'estMiles': res[4]
+    }
+
+    res = querySQL(f'''
+        SELECT description, serviceInterval, dueAtMiles
+        FROM serviceSchedule
+        WHERE vehicleID = {vehicleID}
+    ''')
+
+    serviceSched = []
+    for result in res:
+        serviceSched.append({
+            'description': result[0],
+            'serviceInterval': result[1],
+            'dueAtMiles': result[2]
+        }) 
+    
     return render_template('single_vehicle.html', vehicle=vehicle, serviceSched=serviceSched)
 
 
@@ -783,7 +817,7 @@ def newVehicleUI(userID):
 
     elif request.method == 'POST':
         try:
-            vehInfo = handleNewVehiclePOST(userID)
+            vehicle = handleNewVehiclePOST(userID)
         except FormInputError as f:
             return render_template(newVehForm, userID=userID, error=True, errorMessage=str(f))
         except DuplicateItemError as d:
@@ -792,7 +826,7 @@ def newVehicleUI(userID):
             print(e)
             return Response(status=400)
 
-        return render_template(newVehConf, userID=userID, vehInfo=vehInfo)
+        return render_template(newVehConf, userID=userID, vehicle=vehicle)
     else:
         pass
 
@@ -800,7 +834,7 @@ def newVehicleUI(userID):
 @app.route('/Vehicles/<vehicleID>/New-Service', methods=['GET', 'POST'])
 def newServiceUI(vehicleID):
     newServForm = 'new_service_form.html'
-    newServConf = 'new_vehicle_submitted.html'
+    newServConf = 'new_service_submitted.html'
     try:
         vehicleID = validateVehIdInURL(vehicleID)
     except:
