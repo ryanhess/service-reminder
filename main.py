@@ -752,6 +752,11 @@ def serveSingleUserPage(userID):
 
 # VEHICLES #
 
+@app.route('/Vehicles/<vehicleID>/Update-Odometer', methods=['GET', 'POST'])
+def serveUpdateOdoForm(vehicleID):
+    return Response(status=200)
+
+
 # should show the vehicle info in one div
 # then a button to add a service item
 # then another table with all the service items listed
@@ -835,3 +840,5 @@ if __name__ == '__main__':
     from sys import argv
     configHTMLAutoReload()
     app.run(port=3000, debug=True)
+
+# change made in 10/8/25 remote branch.

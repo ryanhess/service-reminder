@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>New Vehicle</h1>
-{% if error %}
+{% if errorMessage %}
 <div style="color:red">Please try again. {{errorMessage}}</div>
 {% endif %}
 <form action="{{ url_for('newVehicleUI', userID=userID) }}" method="POST">
