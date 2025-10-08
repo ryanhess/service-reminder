@@ -148,12 +148,12 @@ def promptUserForOneVeh(usrID=0):
         raise NotInDatabaseError("no eligible vehicle found for user.")
 
     queryResult = querySQL(stmt=f'''
-            SELECT vehNickname, make, model, year
+            SELECT displayName
             FROM vehicles
             WHERE vehicleID = {vehID}
     ''')
 
-    nick, make, modl, year = queryResult[0]
+    displayName = queryResult[0]
 
     # we need the user name and the phone number from the user.
     queryResult = querySQL(stmt=f'''
@@ -162,8 +162,7 @@ def promptUserForOneVeh(usrID=0):
     ''')
     (username, phone) = queryResult[0]
 
-    msg = f"""Hey {username}, Service Reminders here. Please reply with an odometer reading for {
-        nick if nick != None else ' your ' + str(year) + ' ' + make + ' ' + modl}."""
+    msg = f"""Hey {username}, Service Reminders here. Please reply with an odometer reading for {displayName}."""
 
     return phone, msg
 
@@ -274,15 +273,14 @@ def notifyOneService(serviceItemID):
     username, phone = res[0]
 
     res = querySQL(stmt=f"""
-        SELECT vehNickname, year, make, model FROM vehicles
+        SELECT displayName FROM vehicles
         WHERE vehicleID = {vehID}
     """)
 
-    nick, year, make, model = res[0]
+    displayName = res[0][0]
 
     msg = f"""
-        {username}, {nick if nick != None else ' your ' +
-                     str(year) + ' ' + str(make) + ' ' + str(model)}
+        {username}, {displayName}
         is due for item: "{desc}" at {dueAt} miles.
     """
 
@@ -416,14 +414,14 @@ def receiveOdoMsg():
     else:
         res = querySQL(
             stmt="""
-                SELECT vehNickname, year, make, model FROM vehicles
+                SELECT displayName FROM vehicles
                 WHERE vehicleID = %s
             """,
             val=(vehID,)
         )
-        nick, year, make, model = res[0]
+        displayName = res[0][0]
         resp.message(
-            f"Successfully updated the odometer for {nick if nick else "your " + str(year) + " " + make + " " + model}.")
+            f"Successfully updated the odometer for {displayName}.")
 
     return Response(str(resp), mimetype='text/xml')
 

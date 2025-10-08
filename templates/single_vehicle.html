@@ -1,17 +1,11 @@
 {% extends 'base.html' %}
 
 {% block title %}
-{% if vehicle['nick']: %}
-{{ vehicle['nick'] }}
-{% else %}
-{{ vehicle['year'] + ' ' +
-vehicle['make'] + ' ' +
-vehicle['model'] }}
-{% endif %}
+{{ vehicle['dispName'] }}
 {% endblock %}
 
 {% block content %}
-<h1>display name</h1>
+<h1>{{ vehicle['dispName'] }}</h1>
 <div id="veh-info">
 
 </div>
