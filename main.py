@@ -683,15 +683,15 @@ def newVehicleUI(userID):
         return Response(status=404)
 
     if request.method == 'GET':
-        return render_template('new_vehicle_form.html', userID=userID, error=False)
+        return render_template('new_vehicle_form.html', userID=userID)
 
     elif request.method == 'POST':
         try:
             vehInfo = handleNewVehiclePOST(userID)
         except FormInputError as f:
-            return render_template('new_vehicle_form.html', userID=userID, error=True, errorMessage=str(f))
+            return render_template('new_vehicle_form.html', userID=userID, errorMessage=str(f))
         except DuplicateItemError as d:
-            return render_template('new_vehicle_form.html', userID=userID, error=True, errorMessage=str(d))
+            return render_template('new_vehicle_form.html', userID=userID, errorMessage=str(d))
         except Exception as e:
             print(e)
             return Response(status=400)
