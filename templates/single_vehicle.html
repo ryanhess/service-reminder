@@ -16,29 +16,31 @@ vehicle['model'] }}
 
 </div>
 <div id="odo-info">
-{% if odoConfirmation %}
-<h3 style="color:green">Successfully updated the odometer.</h3>
-{% endif %}
-<h3>Odometer Reading from {{ vehicle['dateLastODO'] }}: {{ vehicle['miles'] }} | Current Miles (estimated): {{ vehicle['odoEst'] }} | <a href="{{ url_for('serveUpdateOdoForm', vehicleID=vehicle['id']) }}">Update Odometer Reading</a></h3>
+    {% if odoConfirmation %}
+    <h3 style="color:green">Successfully updated the odometer.</h3>
+    {% endif %}
+    <h3>Odometer Reading from {{ vehicle['dateLastODO'] }}: {{ vehicle['miles'] }} | Current Miles (estimated): {{
+        vehicle['odoEst'] }} | <a href="{{ url_for('serveUpdateOdoForm', vehicleID=vehicle['id']) }}">Update Odometer
+            Reading</a></h3>
 </div>
 <div id="serv-sched">
-<h2>Service Schedule</h2>
-<table>
-    <tr>
-        <th>Description</th>
-        <th>Service Interval</th>
-        <th>Due At (miles)</th>
-        <th>Actions</th>
-    </tr>
-    {% for item in serviceSched %}
-    <tr>
-        <td>{{ item['desc'] }}</td>
-        <td>{{ item['interval'] }}</td>
-        <td>{{ item['dueAtMiles'] }}</td>
-        <td><a href=''>Edit Item</a>|<a href=''>Update Service Done</a></td>
-    </tr>
-    {% endfor %}
-    <tr><a href='{{ url_for("serveNewServiceForm", vehicleID=vehicle["id"]) }}'>Add Service Item</a></tr>
-</table>
+    <h2>Service Schedule</h2>
+    <table>
+        <tr>
+            <th>Description</th>
+            <th>Service Interval</th>
+            <th>Due At (miles)</th>
+            <th>Actions</th>
+        </tr>
+        {% for item in serviceSched %}
+        <tr>
+            <td>{{ item['desc'] }}</td>
+            <td>{{ item['interval'] }}</td>
+            <td>{{ item['dueAtMiles'] }}</td>
+            <td><a href=''>Edit Item</a>|<a href=''>Update Service Done</a></td>
+        </tr>
+        {% endfor %}
+        <tr><a href='{{ url_for("serveNewServiceForm", vehicleID=vehicle["id"]) }}'>Add Service Item</a></tr>
+    </table>
 </div>
 {% endblock %}

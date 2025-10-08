@@ -40,6 +40,11 @@ def createTables(connection, cursor):
             make VARCHAR(255) NOT NULL,
             model VARCHAR(255) NOT NULL,
             year YEAR NOT NULL,
+            displayName VARCHAR(255) GENERATED ALWAYS AS (
+                If((vehNickname = '') OR vehNickname IS NULL, 
+                CONCAT_WS(' ', year, make, model),
+                vehNickname)
+            ),
             miles DECIMAL(8,1) DEFAULT NULL,
             dateLastODO DATE DEFAULT NULL,
             milesPerDay DOUBLE,
