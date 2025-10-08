@@ -577,7 +577,7 @@ def handleNewVehiclePOST(userID):
     ''', val=(userID, ))
     username = res[0][0]
 
-    return {'username': username, 'id': newVehID, 'displayName': dispName}
+    return {'username': username, 'nick': nick, 'make': make, 'model': model, 'year': year}
 
     # miles, if it is empty string, then leave miles NULL
 
@@ -771,35 +771,8 @@ def serveSingleVehiclePage(vehicleID):
         vehicleID = validateVehIdInURL(vehicleID)
     except:
         return Response(status=404)
-    
-    res = querySQL(f'''
-        SELECT vehicleID, displayName, miles, dateLastODO, estMiles
-        FROM vehicles
-        WHERE vehicleID = {vehicleID}
-    ''')
-    res = res[0]
-    vehicle = {
-        'id': res[0],
-        'displayName': res[1], 
-        'miles': res[2], 
-        'dateLastODO': res[3],
-        'estMiles': res[4]
-    }
-
-    res = querySQL(f'''
-        SELECT description, serviceInterval, dueAtMiles
-        FROM serviceSchedule
-        WHERE vehicleID = {vehicleID}
-    ''')
-
-    serviceSched = []
-    for result in res:
-        serviceSched.append({
-            'description': result[0],
-            'serviceInterval': result[1],
-            'dueAtMiles': result[2]
-        }) 
-    
+    vehicle = {'id': 1, 'nick': 'nickname', 'make': 'lexus', 'model': 'rx', 'year': '1235'}
+    serviceSched = {}
     return render_template('single_vehicle.html', vehicle=vehicle, serviceSched=serviceSched)
 
 
