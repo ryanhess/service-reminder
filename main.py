@@ -7,10 +7,9 @@ from flask import Flask, request, Response, render_template
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
 import DB_Builder
-
+from enum import Enum
 
 ODOPROMPTINTERVAL = 7  # the number of days to wait before prompting a regular ODO reading
-
 
 app = Flask(__name__)
 
@@ -578,6 +577,81 @@ def handleNewVehiclePOST(userID):
     # miles, if it is empty string, then leave miles NULL
 
 
+# Handle the new service form, validate inputs, and add as a new service.
+def handleNewServicePOST(vehicleID: int):
+    print(request.headers)
+    print(request.form)
+
+    try:
+        vehicleID = validateVehIdInURL(vehicleID)
+    except Exception as e:
+        raise e
+
+    # description
+    # check that it is present
+    desc = request.form['description']
+    if desc == '':
+        raise FormInputError('missing required parameter "description" in request')
+
+    # interval
+    # check that its present.
+    # try casting into the data type for the column in the DB
+    intv = request.form['interval']
+    if intv == '':
+        raise FormInputError('missing required parameter "interval" in request')
+    
+
+
+    # try casting the input into a SQL year datatype
+    res = querySQL('''
+        SELECT CAST(%s AS YEAR)
+    ''', val=(year, ))
+    if not res[0][0]:
+        raise FormInputError('please enter a valid year')
+
+    # make
+    make = request.form['make']
+    if make == '':
+        raise FormInputError('Missing a make for the vehicle.')
+
+    # model
+    model = request.form['model']
+    if model == '':
+        raise FormInputError('Missing a model for the vehicle.')
+
+    result = querySQL(stmt='''
+        INSERT INTO vehicles
+        (userID, vehNickname, make, model, year)
+        VALUES (%s, %s, %s, %s, %s)
+    ''', val=(userID, nick, make, model, year))
+    newVehID = result
+
+    # now try to add the odometer reading.
+    # updateODO
+    miles = request.form['miles']
+    if len(miles) > 0:
+        try:
+            updateODO(vehID=newVehID, newODO=miles)
+        except TypeError:
+            raise FormInputError('miles is not a number.')
+        except Exception as e:
+            breakpoint()
+            raise e
+
+    # for now dont check for duplicate vehicles.
+
+    # lastly get the username for the id so it can show
+    # up in the confirmation.
+    res = querySQL('''
+        SELECT username FROM users
+        WHERE userID = %s
+    ''', val=(userID, ))
+    username = res[0][0]
+
+    return {'username': username, 'nick': nick, 'make': make, 'model': model, 'year': year}
+
+
+
 ### WEB UI ROUTES ###
 
 # Serves the homepage, which consists of a welcome message
@@ -611,18 +685,20 @@ def serveUsersList():
 # handles two functions in one:
 @app.route("/Users/New", methods=['GET', 'POST'])
 def newUserUI():
+    newUserForm = 'new_user_form.html'
+    newUserConf = 'new_user_submitted.html'
     if request.method == 'GET':
-        return render_template('new_user_form.html', error=False)
+        return render_template(newUserForm, error=False)
     elif request.method == 'POST':
         try:
-            userInfo = handleNewUserPOST()
+            userInfo = handleNewUserPOST()  
         except FormInputError as f:
-            return render_template('new_user_form.html', error=True, errorMessage=str(f))
+            return render_template(newUserForm, error=True, errorMessage=str(f))
         except DuplicateItemError as d:
-            return render_template('new_user_form.html', error=True, errorMessage=str(d))
+            return render_template(newUserForm, error=True, errorMessage=str(d))
 
         print(request.form)
-        return render_template('new_user_submitted.html', userInfo=userInfo)
+        return render_template(newUserConf, userInfo=userInfo)
     else:
         pass
 
@@ -675,31 +751,6 @@ def serveSingleUserPage(userID):
 
 
 # VEHICLES #
-@app.route("/Users/<userID>/New-Vehicle", methods=['GET', 'POST'])
-def newVehicleUI(userID):
-    try:
-        userID = validateUserIdInURL(userID)
-    except:
-        return Response(status=404)
-
-    if request.method == 'GET':
-        return render_template('new_vehicle_form.html', userID=userID, error=False)
-
-    elif request.method == 'POST':
-        try:
-            vehInfo = handleNewVehiclePOST(userID)
-        except FormInputError as f:
-            return render_template('new_vehicle_form.html', userID=userID, error=True, errorMessage=str(f))
-        except DuplicateItemError as d:
-            return render_template('new_vehicle_form.html', userID=userID, error=True, errorMessage=str(d))
-        except Exception as e:
-            print(e)
-            return Response(status=400)
-
-        return render_template('new_vehicle_submitted.html', userID=userID, vehInfo=vehInfo)
-    else:
-        pass
-
 
 # should show the vehicle info in one div
 # then a button to add a service item
@@ -710,16 +761,71 @@ def serveSingleVehiclePage(vehicleID):
         vehicleID = validateVehIdInURL(vehicleID)
     except:
         return Response(status=404)
-    vehicle = {}
+    vehicle = {'id': 1, 'nick': 'nickname', 'make': 'lexus', 'model': 'rx', 'year': '1235'}
     serviceSched = {}
     return render_template('single_vehicle.html', vehicle=vehicle, serviceSched=serviceSched)
 
 
+@app.route('/Users/<userID>/New-Vehicle', methods=['GET', 'POST'])
+def newVehicleUI(userID):
+    newVehForm = 'new_vehicle_form.html'
+    newVehConf = 'new_vehicle_submitted.html'
+    try:
+        userID = validateUserIdInURL(userID)
+    except:
+        return Response(status=404)
+
+    if request.method == 'GET':
+        return render_template(newVehForm, userID=userID, error=False)
+
+    elif request.method == 'POST':
+        try:
+            vehInfo = handleNewVehiclePOST(userID)
+        except FormInputError as f:
+            return render_template(newVehForm, userID=userID, error=True, errorMessage=str(f))
+        except DuplicateItemError as d:
+            return render_template(newVehForm, userID=userID, error=True, errorMessage=str(d))
+        except Exception as e:
+            print(e)
+            return Response(status=400)
+
+        return render_template(newVehConf, userID=userID, vehInfo=vehInfo)
+    else:
+        pass
+
+
 @app.route('/Vehicles/<vehicleID>/New-Service', methods=['GET', 'POST'])
-def serveNewServiceForm(vehicleID):
-    return Response(status=200)
+def newServiceUI(vehicleID):
+    newServForm = 'new_service_form.html'
+    newServConf = 'new_vehicle_submitted.html'
+    try:
+        vehicleID = validateVehIdInURL(vehicleID)
+    except:
+        return Response(status=404)
+
+    if request.method == 'GET':
+        return render_template(newServForm, vehicleID=vehicleID, error=False)
+
+    elif request.method == 'POST':
+        try:
+            servInfo = handleNewServicePOST(vehicleID)
+        except FormInputError as f:
+            return render_template(newServForm, vehicleID=vehicleID, error=True, errorMessage=str(f))
+        except DuplicateItemError as d:
+            return render_template(newServForm, vehicleID=vehicleID, error=True, errorMessage=str(d))
+        except Exception as e:
+            print(e)
+            return Response(status=400)
+
+        return render_template(newServConf, vehicleID=vehicleID, vehInfo=vehInfo)
+    else:
+        pass
 
 
+### Running the server ###
+
+
+# for def testing
 def configHTMLAutoReload():
     app.jinja_env.auto_reload = True
     app.config['TEMPLATES_AUTO_RELOAD'] = True

@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block title %}New Service Item{% endblock %}
+
+{% block content %}
+<h1>New Service Item</h1>
+{% if error %}
+<div style="color:red">Please try again. {{errorMessage}}</div>
+{% endif %}
+<form action="{{ url_for('newServiceUI', vehicleID=vehicleID) }}" method="POST">
+    <label for="description">Item Description</label>
+    <input type="text" id="description" name="description">
+    <br>
+    <label for="interval">Mileage Interval</label>
+    <input type="text" id="interval" name="interval">
+    <br>
+    <input type="submit" value="Submit">
+</form>
+{% endblock %}

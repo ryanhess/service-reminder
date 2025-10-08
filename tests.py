@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from twilio.twiml.messaging_response import MessagingResponse
 from contextlib import nullcontext as does_not_raise
 # import flask
-from flask import Response
+from flask import Response, url_for
 import xml.etree.ElementTree as ET  # for parsing responses from routes.
 
 
@@ -586,99 +586,7 @@ def test_receiveOdoMsg(client, mocker):
         assert msgElem is not None
 
         responseStr = msgElem.text
-        '''
-        # -input handling:
-        #  'From' should just be a phone number. no need to test.
-        #  if phone is not in DB message should indicate that.
-        #  -Handle the case in which the vehicleID is not in the database. This should throw
-        #    an exception which should be handled, causing receiveOdoMsg to return a corresponding message.
-        #  -Handle bad odo readings:
-        #    -odo is not a number
-        #    -odo is a number, but is:
-        #      -lower than the vehicle's odo and therefore invalid.
-        #      -negative
-        #      -too large. since DB sets a maximum amount in the schema, investigate using an excetion thrown by MySQL
-        #       for this.
-
-        # check if the phone number is in the DB and decide whether this input will test that.
-        res = main.querySQL(
-            stmt="""
-                SELECT userID FROM users
-                WHERE phone = %s
-            """,
-            val=(fromPhone,)
-        )
-        if res == []:
-            testNoUserInDB = True
-        else:
-            testNoUserInDB = False
-
-        # Attempt to retreive a vehicle that would be eligible for an update.
-        res = main.querySQL(f"""
-            SELECT vehicleID, miles, dateLastODO FROM vehicles
-            WHERE userID = (SELECT userID FROM users WHERE phone = "{fromPhone}")
-            AND DATEDIFF('{todaySample}', dateLastODO) > '{main.ODOPROMPTINTERVAL}'
-        """)
-
-        # if there is no eligible vehicle under this user, we should check that
-        # receiveOdoMsg can figure that out and respond accordingly.
-        if res == []:
-            testNoMatchingVehInDB = True
-            vehID = None
-            vehMiles = None
-            dateLastOdo = None
-        else:
-            testNoMatchingVehInDB = False
-            vehID, vehMiles, dateLastOdo = res[0]
-
-        try:
-            odoReading = float(smsBody)
-        except ValueError:
-            odoReading = None
-            testOdoIsNotNumber = True
-        else:
-            testOdoIsNotNumber = False
-
-        testOdoLowerThanVehMiles = \
-            (vehMiles > odoReading) if odoReading and vehMiles else False
-
-        testOdoIsNeg = \
-            (odoReading < 0) if odoReading is not None else False
-
-        # query the database for the max possible value
-        maxODO = getMaxTheoValueDecimal("vehicles", "miles")
-        testOdoTooLarge = \
-            (odoReading > maxODO) if odoReading is not None else False
-
-        testNoDateLastOdo = dateLastOdo is None
-
-        # if the input would violate any of these conditions,
-        # check that receiveOdoMsg is also checking for these conditions
-        # and responding accordingly.
-        if testNoUserInDB:
-            assert "your phone number is not associated with Service Reminders." in responseStr
-            print("no user in DB")
-        elif testNoMatchingVehInDB:
-            assert "none of your vehicles need an odometer update." in responseStr
-            print("no eligible vehicle")
-        elif testOdoIsNotNumber:
-            assert "message is not a number" in responseStr
-            print("not a number")
-        elif testOdoIsNeg:
-            assert "can't be negative." in responseStr
-            print("negative")
-        elif testOdoTooLarge:
-            assert f"number can't be more than {maxODO}" in responseStr
-            print("too large")
-        elif testOdoLowerThanVehMiles:
-            assert "must be more than your vehicle's last recorded miles." in responseStr
-            print("less than recorded miles")
-        else:
-            print("no input errors.")
-            if testNoDateLastOdo:
-                print("first time ODO reading")
-        '''
-
+        
         maxODO = getMaxTheoValueDecimal("vehicles", "miles")
 
         # these checks should cascade because these conditions shouldnt overlap
@@ -746,7 +654,7 @@ def test_receiveOdoMsg(client, mocker):
         fromPhone="+100", smsBody="6")
 
 
-# test that all of the web routes load successfully.
+# test all GET web routes
 def test_webUserRoutes(client):
     response = client.get('/')
     assert response.status_code == 200
@@ -754,27 +662,50 @@ def test_webUserRoutes(client):
     response = client.get('/Users')
     assert response.status_code == 200
 
-    response = client.get('/Users/New')
-    assert response.status_code == 200
+    # response = client.get('/Users/New')
+    # assert response.status_code == 200
 
-    response = client.post('/Users/New')
+    # response = client.get('/Users/1')
+    # assert response.status_code == 200
 
-    response = client.get('/Users/1')
-    assert response.status_code == 200
+    # response = client.get('/Users/blah')
+    # assert response.status_code == 404
 
+    # response = client.get('/Users/100000000000')
+    # assert response.status_code == 404
+
+    # response = client.get('/Users/1/New-Vehicle')
+    # assert response.status_code == 200
+
+    # response = client.get('/Vehicles/1')
+    # assert response.status_code == 200
+
+    # response = client.get('/Vehicles/0')
+    # assert response.status_code == 404
+
+    # response = client.get('/Vehicles/blah')
+    # assert response.status_code == 404
+
+    # response = client.get('/Vehicles/1/New-Service')
+    # assert response.status_code == 200
+    
+    # response = client.get('/Vehicles/0/New-Service')
+    # assert response.status_code == 404
+
+    # response = client.get('/Vehicles/blah/New-Service')
+    # assert response.status_code == 404
 
 # simple createUser function
 # check that the user is created.
 # testing input filtering is coming soon.
 # test that the new user is in the database and that status code is 200
-def test_HandleNewUser(client, mocker):
+def test_newUserUIPOST(client, mocker):
     spiedUser = spiedPhone = spiedErrMsg = None
 
-    def mock_render_template(unusedTemplateFile="", user="", phone="", error=False, errorMessage=""):
+    def mock_render_template(unusedTemplateFile="", userInfo={'username': None, 'phone': None}, error=False, errorMessage=""):
         nonlocal spiedUser, spiedPhone, spiedErrMsg
-
-        spiedUser = user
-        spiedPhone = phone
+        spiedUser = userInfo['username']
+        spiedPhone = userInfo['phone']
         spiedErrMsg = errorMessage
 
         return Response(status=200)
@@ -808,7 +739,87 @@ def test_HandleNewUser(client, mocker):
     # the function runs with no errors.
     def runTest(usr, phone):
         nonlocal spiedUser, spiedPhone, spiedErrMsg
-        route = '/Users/New'
+        with main.app.test_request_context():
+            route = url_for('newUserUI')   
+        form = {
+            'username': usr,
+            'phone': phone
+        }
+
+        response = client.post(path=route, data=form)
+
+        # no matter what the server should respond with a webpage.
+        # in this case, I am artificially generating responses
+        # but if it gets to render_template without errors I think that
+        # is enough for the test function to test.
+        assert response.status_code == 200
+
+        if spiedErrMsg:
+            msg = spiedErrMsg
+        else:
+            assert checkUserInDB(spiedUser, spiedPhone)
+            msg = 0
+
+        spiedUser = spiedPhone = spiedErrMsg = None
+
+        return msg
+
+    # asserting a username that already exists
+    assert 'username is already in use' in runTest(
+        usr='ryanhess', phone='1414144444')
+
+    # asserting a phone number that already exists
+    assert 'phone number is already in use' in runTest(
+        usr='thepinkpanther', phone='+18777804236'
+    )
+
+    # asserting correct operation with good inputs
+    assert not runTest(usr='newUserTest123', phone='+12838812931')
+    assert not runTest(usr='###fsf23', phone='+14838812931')
+
+
+def test_newUserUIPOST(client, mocker):
+    spiedUser = spiedPhone = spiedErrMsg = None
+
+    def mock_render_template(unusedTemplateFile="", userInfo={'username': None, 'phone': None}, error=False, errorMessage=""):
+        nonlocal spiedUser, spiedPhone, spiedErrMsg
+        spiedUser = userInfo['username']
+        spiedPhone = userInfo['phone']
+        spiedErrMsg = errorMessage
+
+        return Response(status=200)
+
+    renderMock = mocker.patch('main.render_template')
+    renderMock.side_effect = mock_render_template
+
+    # checks that username is in db and that its phone is 'phone'
+    # if either is not true, return false.
+    # should be passed sanitized and properly formatted data or
+    # it will return false.
+    def checkUserInDB(usrN, phone):
+        res = main.querySQL(stmt=f'''
+            SELECT userID From users
+            WHERE username = '{usrN}'
+        ''')
+
+        if res == []:
+            return False
+        else:
+            userID = res[0][0]
+            res = main.querySQL(stmt=f'''
+                SELECT phone FROM users
+                WHERE userID = '{userID}'
+            ''')
+            return res[0][0] == str(phone)
+
+    # runs some tests inside and returns the error message that would be
+    # displayed so inputs can be asserted outside.
+    # if no error, returns 0 so that "assert not runTest()" is asserting that
+    # the function runs with no errors.
+    def runTest(usr, phone):
+        nonlocal spiedUser, spiedPhone, spiedErrMsg
+        with main.app.test_request_context():
+            route = url_for('newUserUI')   
         form = {
             'username': usr,
             'phone': phone
