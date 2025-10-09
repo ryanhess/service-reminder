@@ -702,9 +702,9 @@ def newUserUI():
         try:
             userInfo = handleNewUserPOST()  
         except FormInputError as f:
-            return render_template(newUserForm, error=True, errorMessage=str(f))
+            return render_template(newUserForm, errorMessage=str(f))
         except DuplicateItemError as d:
-            return render_template(newUserForm, error=True, errorMessage=str(d))
+            return render_template(newUserForm, errorMessage=str(d))
 
         print(request.form)
         return render_template(newUserConf, userInfo=userInfo)
@@ -761,11 +761,6 @@ def serveSingleUserPage(userID):
 
 # VEHICLES #
 
-@app.route('/Vehicles/<vehicleID>/Update-Odometer', methods=['GET', 'POST'])
-def serveUpdateOdoForm(vehicleID):
-    return Response(status=200)
-
-
 # should show the vehicle info in one div
 # then a button to add a service item
 # then another table with all the service items listed
@@ -817,20 +812,48 @@ def newVehicleUI(userID):
         return Response(status=404)
 
     if request.method == 'GET':
-        return render_template(newVehForm, userID=userID, error=False)
+        return render_template(newVehForm, userID=userID)
 
     elif request.method == 'POST':
         try:
             vehicle = handleNewVehiclePOST(userID)
         except FormInputError as f:
-            return render_template(newVehForm, userID=userID, error=True, errorMessage=str(f))
+            return render_template(newVehForm, userID=userID, errorMessage=str(f))
         except DuplicateItemError as d:
-            return render_template(newVehForm, userID=userID, error=True, errorMessage=str(d))
+            return render_template(newVehForm, userID=userID, errorMessage=str(d))
         except Exception as e:
             print(e)
             return Response(status=400)
 
         return render_template(newVehConf, userID=userID, vehicle=vehicle)
+    else:
+        pass
+
+
+@app.route('/Vehicles/<vehicleID>/Update-Odometer', methods=['GET', 'POST'])
+def serveUpdateOdoForm(vehicleID):
+    updateODOForm = 'update_odo_form.html'
+    updateODOConf = 'update_odo_confirmation.html'
+    try:
+        vehicleID = validateVehIdInURL(vehicleID)
+    except:
+        return Response(status=404)
+    
+    if request.method == 'GET':
+        return render_template(updateODOForm, vehicleID=vehicleID)
+
+    elif request.method == 'POST':
+        try:
+            newService = handleUpdateOdoPOST(vehicleID)
+        except FormInputError as f:
+            return render_template(updateODOForm, vehicleID=vehicleID, errorMessage=str(f))
+        except DuplicateItemError as d:
+            return render_template(updateODOForm, vehicleID=vehicleID, errorMessage=str(d))
+        except Exception as e:
+            print(e)
+            return Response(status=400)
+
+        return render_template(updateODOConf, vehicle=vehicle)
     else:
         pass
 
@@ -861,6 +884,11 @@ def newServiceUI(vehicleID):
         return render_template(newServConf, vehicleID=vehicleID, newService=newService)
     else:
         pass
+
+
+@app.route('/Service/<itemID>/Update-Service-Done', methods=['GET', 'POST'])
+def serveUpdateServiceDone(itemID):
+    return Response(status=200)
 
 
 ### Running the server ###
