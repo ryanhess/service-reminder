@@ -3,7 +3,7 @@ from decimal import *
 from datetime import date
 # from urllib.parse import parse_qs
 from mysql.connector import connect, Error
-from flask import Flask, request, Response, render_template
+from flask import Flask, request, Response, render_template, redirect, url_for
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
 import DB_Builder
@@ -172,6 +172,11 @@ def promptUserForOneVeh(usrID=0):
 # this should check that the new ODO reading is greater than the previous ODO reading. Should reply to the user confirming the reading or prompting again if the reading contains an error.
 # Calculate and store a new average miles per day given the prev ODO reading and the days since the last ODO reading.
 def updateODO(vehID=0, newODO=0):
+    '''
+    :raises TypeError if called with not a number.
+    :raises NotInDatabaseError if the veh doesnt exist
+    :raises ValueError if the param is less than the current odo.
+    '''
     today = getDateToday()
 
     try:
@@ -215,11 +220,11 @@ def updateODO(vehID=0, newODO=0):
     except ZeroDivisionError:
         newMilesPerDay = curMilesPerDay
 
-    querySQL(f"""
+    querySQL(stmt='''
         UPDATE vehicles
-        SET miles = {round(newODO, 1)}, dateLastODO = '{today}', milesPerDay = {newMilesPerDay}
-        WHERE vehicleID = {vehID}
-    """)
+        SET miles = %s, dateLastODO = %s, milesPerDay = %s
+        WHERE vehicleID = %s
+    ''', val=( round(newODO,1), today, newMilesPerDay, vehID ))
 
 
 # def:
@@ -660,7 +665,31 @@ def handleNewServicePOST(vehicleID: int):
     return {'description': description, 'interval': interval }
 
 
+def handleUpdateOdoPOST(vehicleID: int):
+    print(request.headers)
+    print(request.form)
+    # breakpoint()
+    try:
+        vehicleID = validateVehIdInURL(vehicleID)
+    except Exception as e:
+        raise e
+    
+    miles = request.form['miles']
 
+    # check that miles is there.
+    if not miles or miles == '':
+        raise FormInputError('missing required field Odometer Reading.')
+    
+    # updateODO does the rest of the input checking.
+    try:
+        updateODO(vehID=vehicleID, newODO=miles)
+    except ValueError:
+        raise FormInputError('Odometer reading cannot be less than the last recorded odometer reading for the vehicle.')
+    except TypeError:
+        raise FormInputError('Odometer reading not a valid number')
+    except Exception() as e:
+        breakpoint()
+        raise e
 ### WEB UI ROUTES ###
 
 # Serves the homepage, which consists of a welcome message
@@ -730,10 +759,10 @@ def serveSingleUserPage(userID):
         # if there is any issue with the input here, return page not found.
         return Response(status=404)
 
-    res = querySQL(f'''
+    res = querySQL('''
         SELECT username FROM users
-        WHERE userID = {userID}
-    ''')
+        WHERE userID = %s
+    ''', val=(userID, ))
     username = res[0][0]
 
     res = querySQL('''
@@ -831,7 +860,7 @@ def newVehicleUI(userID):
 
 
 @app.route('/Vehicles/<vehicleID>/Update-Odometer', methods=['GET', 'POST'])
-def serveUpdateOdoForm(vehicleID):
+def updateOdoUI(vehicleID):
     updateODOForm = 'update_odo_form.html'
     updateODOConf = 'update_odo_confirmation.html'
     try:
@@ -839,16 +868,22 @@ def serveUpdateOdoForm(vehicleID):
     except:
         return Response(status=404)
     
+    res = querySQL(stmt='''
+        SELECT vehicleID, displayName, miles FROM vehicles
+        WHERE vehicleID = %s
+    ''', val=(vehicleID, ))
+    vehicle = {'id': res[0][0], 'displayName': res[0][1], 'miles': res[0][2]}
+    
     if request.method == 'GET':
-        return render_template(updateODOForm, vehicleID=vehicleID)
+        return render_template(updateODOForm, vehicle=vehicle)
 
     elif request.method == 'POST':
         try:
-            newService = handleUpdateOdoPOST(vehicleID)
+            handleUpdateOdoPOST(vehicleID)
         except FormInputError as f:
-            return render_template(updateODOForm, vehicleID=vehicleID, errorMessage=str(f))
+            return render_template(updateODOForm, vehicle=vehicle, errorMessage=str(f))
         except DuplicateItemError as d:
-            return render_template(updateODOForm, vehicleID=vehicleID, errorMessage=str(d))
+            return render_template(updateODOForm, vehicle=vehicle, errorMessage=str(d))
         except Exception as e:
             print(e)
             return Response(status=400)

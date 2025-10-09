@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>New User</h1>
-{% if errorMessage is defined %}
+{% if errorMessage %}
 <div style="color:red">Please try again. {{errorMessage}}</div>
 {% endif %}
 <form action="{{ url_for('newUserUI') }}" method="POST">

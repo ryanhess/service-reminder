@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}Update Odometer{% endblock %}
+
+{% block content %}
+<h1>Update Odometer for {{ vehicle['displayName'] }}</h1>
+{% if errorMessage %}
+<div style="color:red">Please try again. {{errorMessage}}</div>
+{% endif %}
+<form action="{{ url_for('updateOdoUI', vehicleID=vehicle['id']) }}" method="POST">
+    <label for="miles">Odometer Reading</label>
+    <input type="text" id="miles" name="miles" required>
+    <br>
+    <input type="submit" value="Submit">
+</form>
+{% endblock %}

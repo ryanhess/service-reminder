@@ -11,7 +11,7 @@
     <h3 style="color:green">Successfully updated the odometer.</h3>
     {% endif %}
     <h3>Odometer Reading from {{ vehicle['dateLastODO'] }}: {{ vehicle['miles'] }} | Current Miles (estimated): {{
-        vehicle['estMiles'] }} | <a href="{{ url_for('serveUpdateOdoForm', vehicleID=vehicle['id']) }}">Update Odometer
+        vehicle['estMiles'] }} | <a href="{{ url_for('updateOdoUI', vehicleID=vehicle['id']) }}">Update Odometer
             Reading</a></h3>
 </div>
 <div id="serv-sched">
