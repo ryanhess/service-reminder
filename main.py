@@ -922,7 +922,7 @@ def newServiceUI(vehicleID):
 
 
 @app.route('/Service/<itemID>/Update-Service-Done', methods=['GET', 'POST'])
-def serveUpdateServiceDone(itemID):
+def serviceDoneUI(itemID):
     return Response(status=200)
 
 
