@@ -3,12 +3,10 @@
 {% block title %}Confirmation{% endblock %}
 
 {% block content %}
-<h1>New Vehicle Submitted.</h1>
+<h1>New Service Item Added.</h1>
 <br>
-<p><a href='{{ url_for("serveSingleUserPage", userID=userID) }}'>{{ vehInfo['username'] }},</a></p>
-<p>{% if vehInfo['nickname'] %}{{ vehInfo['nickname'] }}{% else %}Your {{
-    vehInfo['year'] + ' ' + vehInfo['make'] + ' ' + vehInfo['model']
-    }}{% endif %} has been added to your Vehicles.</p>
+<p>Item Description: {{ newService['description'] }}</p>
+<p>Service Interval: {{ newService['interval'] }}</p>
 <br>
-<p>Add service items on its vehicle page.</p>
+<p><a href='{{ url_for("serveSingleVehiclePage", vehicleID=vehicleID) }}'> Back to Vehicle Page</a></p>
 {% endblock %}

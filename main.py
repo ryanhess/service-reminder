@@ -594,66 +594,70 @@ def handleNewServicePOST(vehicleID: int):
 
     # description
     # check that it is present
-    desc = request.form['description']
-    if desc == '' or not desc:
+    description = request.form['description']
+    if description == '' or not description:
         raise FormInputError('missing required parameter "description" in request')
 
     # interval
     # check that its present.
     # try casting into the data type for the column in the DB
-    intv = request.form['interval']
-    if intv == '' or not intv:
+    interval = request.form['interval']
+    if interval == '' or not interval:
         raise FormInputError('missing required parameter "interval" in request')
+
+    # try casting the input into a float
+    try:
+        interval = float(interval)
+        if interval <= 0:
+            raise ValueError()
+    except ValueError:
+        raise FormInputError('interval not a valid number.')
     
+    # check that miles last done is a valid (positive) number
+    milesLastDone = request.form['milesLastDone']
 
+    if milesLastDone and milesLastDone != '':
+        try:
+            milesLastDone = float(milesLastDone)
+            if milesLastDone < 0:
+                raise ValueError()
+        except ValueError: 
+            raise FormInputError('Miles Last Done not a valid number.')
+        
+        dueAt = milesLastDone + interval
+    else:
+        result = querySQL(stmt='''
+            SELECT miles FROM vehicles
+            WHERE vehicleID = %s
+        ''', val=(vehicleID, ))
+        vehODO = result[0][0]
+        dueAt = float(vehODO) + interval
 
-    # try casting the input into a SQL year datatype
-    res = querySQL('''
-        SELECT CAST(%s AS YEAR)
-    ''', val=(year, ))
-    if not res[0][0]:
-        raise FormInputError('please enter a valid year')
+    # check if an item whose description matches, is already in the DB.
+    # if so, raise the duplicate item error.
+    result = querySQL(stmt='''
+        SELECT description FROM serviceSchedule
+        WHERE description = %s
+        AND vehicleID = %s
+    ''', val=(description, vehicleID))
 
-    # make
-    make = request.form['make']
-    if make == '':
-        raise FormInputError('Missing a make for the vehicle.')
-
-    # model
-    model = request.form['model']
-    if model == '':
-        raise FormInputError('Missing a model for the vehicle.')
+    # if there is more than an empty array in the result,
+    if result != []:
+        raise DuplicateItemError('An item with this description already exists for this vehicle.')
+    
+    result = querySQL(stmt='''
+        SELECT userID FROM vehicles
+        WHERE vehicleID = %s
+    ''', val=(vehicleID, ))
+    userID = result[0][0]
 
     result = querySQL(stmt='''
-        INSERT INTO vehicles
-        (userID, vehNickname, make, model, year)
+        INSERT INTO serviceSchedule
+        (vehicleID, userID, description, serviceInterval, dueAtMiles)
         VALUES (%s, %s, %s, %s, %s)
-    ''', val=(userID, nick, make, model, year))
-    newVehID = result
+    ''', val=(vehicleID, userID, description, interval, dueAt))
 
-    # now try to add the odometer reading.
-    # updateODO
-    miles = request.form['miles']
-    if len(miles) > 0:
-        try:
-            updateODO(vehID=newVehID, newODO=miles)
-        except TypeError:
-            raise FormInputError('miles is not a number.')
-        except Exception as e:
-            breakpoint()
-            raise e
-
-    # for now dont check for duplicate vehicles.
-
-    # lastly get the username for the id so it can show
-    # up in the confirmation.
-    res = querySQL('''
-        SELECT username FROM users
-        WHERE userID = %s
-    ''', val=(userID, ))
-    username = res[0][0]
-
-    return {'username': username, 'nick': nick, 'make': make, 'model': model, 'year': year}
+    return {'description': description, 'interval': interval }
 
 
 
@@ -845,7 +849,7 @@ def newServiceUI(vehicleID):
 
     elif request.method == 'POST':
         try:
-            servInfo = handleNewServicePOST(vehicleID)
+            newService = handleNewServicePOST(vehicleID)
         except FormInputError as f:
             return render_template(newServForm, vehicleID=vehicleID, error=True, errorMessage=str(f))
         except DuplicateItemError as d:
@@ -854,7 +858,7 @@ def newServiceUI(vehicleID):
             print(e)
             return Response(status=400)
 
-        return render_template(newServConf, vehicleID=vehicleID, vehInfo=vehInfo)
+        return render_template(newServConf, vehicleID=vehicleID, newService=newService)
     else:
         pass
 

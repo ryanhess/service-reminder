@@ -9,10 +9,13 @@
 {% endif %}
 <form action="{{ url_for('newServiceUI', vehicleID=vehicleID) }}" method="POST">
     <label for="description">Item Description</label>
-    <input type="text" id="description" name="description">
+    <input type="text" id="description" name="description" required>
     <br>
     <label for="interval">Mileage Interval</label>
-    <input type="text" id="interval" name="interval">
+    <input type="text" id="interval" name="interval" required>
+    <br>
+    <label for="lastPerformed">Mileage Last Done (optional)</label>
+    <input type="text" id="milesLastDone" name="milesLastDone">
     <br>
     <input type="submit" value="Submit">
 </form>
