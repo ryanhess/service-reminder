@@ -230,9 +230,12 @@ def updateODO(vehID=0, newODO=0):
 # def:
 # update the records indicating a service was done at a given miles
 # should remove the service due flag, update the mileage deadline, and update the ODO for the vehicle only if this ODO is greater than the ODO stored for the vehicle.
-def updateServiceDone(itemID=0, itemODO=0):
-    if not itemODO:  # if servODO is None
-        itemODO = 0
+def updateServiceDone(itemID, itemODO):
+    '''
+    :raises NotInDatabaseError if item doesnt exist.
+    Does not raise any exception if the itemODO is less than the veh parent miles
+    it will just not update the parent veh in that case.
+    '''
 
     # check for not the right type
     # update the miles of the parent vehicle, only if the new ODO is greater than the previous ODO.
@@ -244,8 +247,8 @@ def updateServiceDone(itemID=0, itemODO=0):
         raise NotInDatabaseError(
             f"serviceSchedule record for itemID = {itemID} does not exist.")
 
-    # yes, I know updateODO checks for this and throws an exception,
-    # but this is not an error. Dont want to trip an exception.
+    # dont need exceptions to percolate up from here for miles being below parent miles.
+    # so check that here.
     vehID, parentMiles = res[0]
     if not parentMiles or itemODO > parentMiles:
         # update the miles of the parent vehicle.
@@ -477,10 +480,10 @@ def validateUserIdInURL(userID):
     except ValueError:
         raise ValueError('userID parameter not a valid userID.')
 
-    res = querySQL(f'''
+    res = querySQL(stmt='''
         SELECT userID FROM users
-        WHERE userID = {userID}
-    ''')
+        WHERE userID = %s
+    ''', val=(userID,))
     if res == []:
         raise NotInDatabaseError(
             f'user with ID {userID} is not in the database.')
@@ -496,15 +499,31 @@ def validateVehIdInURL(vehID):
     except ValueError:
         raise ValueError('vehicleID parameter not valid.')
 
-    res = querySQL(f'''
+    res = querySQL(stmt='''
         SELECT vehicleID FROM vehicles
-        WHERE vehicleID = {vehID}
-    ''')
+        WHERE vehicleID = %s
+    ''', val=(vehID,))
     if res == []:
         raise NotInDatabaseError(
             f'vehicle with ID {vehID} is not in the database.')
 
     return vehID
+
+def validateItemIdInURL(itemID: int):
+    try:
+        itemID = int(itemID)
+    except ValueError:
+        raise ValueError('vehicleID parameter not valid.')
+
+    res = querySQL(stmt='''
+        SELECT itemID FROM serviceSchedule
+        WHERE itemID = %s
+    ''', val=(itemID, ))
+    if res == []:
+        raise NotInDatabaseError(
+            f'service item with ID {itemID} is not in the database.')
+    
+    return itemID
 
 
 # validates the post request, adds data to DB,
@@ -668,7 +687,7 @@ def handleNewServicePOST(vehicleID: int):
 def handleUpdateOdoPOST(vehicleID: int):
     print(request.headers)
     print(request.form)
-    # breakpoint()
+
     try:
         vehicleID = validateVehIdInURL(vehicleID)
     except Exception as e:
@@ -690,6 +709,34 @@ def handleUpdateOdoPOST(vehicleID: int):
     except Exception() as e:
         breakpoint()
         raise e
+    
+
+def handleUpdateServDonePOST(itemID: int):
+    print(request.headers)
+    print(request.form)
+
+    try:
+        itemID = validateItemIdInURL(itemID)
+    except Exception as e:
+        raise e
+    
+    miles = request.form['miles']
+
+    # check that miles is there.
+    if not miles or miles == '':
+        raise FormInputError('missing required field Odometer Reading.')
+    
+    # updateServiceDone with error checking
+    try:
+        updateServiceDone(itemID=itemID, itemODO=miles)
+    except ValueError:
+        raise FormInputError('Odometer reading cannot be less than the last recorded odometer reading for the vehicle.')
+    except TypeError:
+        raise FormInputError('Odometer reading not a valid number')
+    except Exception() as e:
+        breakpoint()
+        raise e
+
 ### WEB UI ROUTES ###
 
 # Serves the homepage, which consists of a welcome message
@@ -859,6 +906,34 @@ def newVehicleUI(userID):
         pass
 
 
+@app.route('/Vehicles/<vehicleID>/New-Service', methods=['GET', 'POST'])
+def newServiceUI(vehicleID):
+    newServForm = 'new_service_form.html'
+    newServConf = 'new_service_submitted.html'
+    try:
+        vehicleID = validateVehIdInURL(vehicleID)
+    except:
+        return Response(status=404)
+
+    if request.method == 'GET':
+        return render_template(newServForm, vehicleID=vehicleID, error=False)
+
+    elif request.method == 'POST':
+        try:
+            newService = handleNewServicePOST(vehicleID)
+        except FormInputError as f:
+            return render_template(newServForm, vehicleID=vehicleID, error=True, errorMessage=str(f))
+        except DuplicateItemError as d:
+            return render_template(newServForm, vehicleID=vehicleID, error=True, errorMessage=str(d))
+        except Exception as e:
+            print(e)
+            return Response(status=400)
+
+        return render_template(newServConf, vehicleID=vehicleID, newService=newService)
+    else:
+        pass
+
+
 @app.route('/Vehicles/<vehicleID>/Update-Odometer', methods=['GET', 'POST'])
 def updateOdoUI(vehicleID):
     updateODOForm = 'update_odo_form.html'
@@ -893,37 +968,38 @@ def updateOdoUI(vehicleID):
         pass
 
 
-@app.route('/Vehicles/<vehicleID>/New-Service', methods=['GET', 'POST'])
-def newServiceUI(vehicleID):
-    newServForm = 'new_service_form.html'
-    newServConf = 'new_service_submitted.html'
+@app.route('/Service/<itemID>/Update-Service-Done', methods=['GET', 'POST'])
+def serviceDoneUI(itemID):
+    servDoneForm = 'service_done_form.html'
+    servDoneConf = 'service_done_confirmation.html'
     try:
-        vehicleID = validateVehIdInURL(vehicleID)
+        itemID = validateItemIdInURL(itemID)
     except:
         return Response(status=404)
-
+    
+    res = querySQL(stmt='''
+        SELECT itemID, vehicleID, description FROM serviceSchedule
+        WHERE itemID = %s
+    ''', val=(itemID, ))
+    serviceItem = {'id': res[0][0], 'vehicleID': res[0][1], 'description': res[0][2]}
+    
     if request.method == 'GET':
-        return render_template(newServForm, vehicleID=vehicleID, error=False)
+        return render_template(servDoneForm, serviceItem=serviceItem)
 
     elif request.method == 'POST':
         try:
-            newService = handleNewServicePOST(vehicleID)
+            handleUpdateServDonePOST(itemID)
         except FormInputError as f:
-            return render_template(newServForm, vehicleID=vehicleID, error=True, errorMessage=str(f))
+            return render_template(servDoneForm, serviceItem=serviceItem, errorMessage=str(f))
         except DuplicateItemError as d:
-            return render_template(newServForm, vehicleID=vehicleID, error=True, errorMessage=str(d))
+            return render_template(servDoneForm, serviceItem=serviceItem, errorMessage=str(d))
         except Exception as e:
             print(e)
             return Response(status=400)
 
-        return render_template(newServConf, vehicleID=vehicleID, newService=newService)
+        return render_template(servDoneConf, serviceItem=serviceItem)
     else:
         pass
-
-
-@app.route('/Service/<itemID>/Update-Service-Done', methods=['GET', 'POST'])
-def serviceDoneUI(itemID):
-    return Response(status=200)
 
 
 ### Running the server ###
@@ -939,5 +1015,3 @@ if __name__ == '__main__':
     from sys import argv
     configHTMLAutoReload()
     app.run(port=3000, debug=True)
-
-# change made in 10/8/25 remote branch.
