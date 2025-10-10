@@ -320,6 +320,19 @@ def test_updateServiceDone():
     with raises(main.NotInDatabaseError):
         runTest(9999, 0)
 
+    # check for passing not a number that can be cast to a float.
+    with raises(TypeError):
+        runTest(1, 'asdf')
+    
+    # check for values out of range
+    with raises(ValueError):
+        runTest(1, '100000000')
+        runTest(1, 100000000)
+
+    with raises(ValueError):
+        runTest(1, -100)
+        runTest(1, '-100')
+
     # Check that the parent miles are NOT updated when
     # odo is less than the original parent miles.
     assert not runTest(1, 11031)

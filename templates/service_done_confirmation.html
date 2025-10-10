@@ -3,6 +3,7 @@
 {% block title %}Confirmation{% endblock %}
 
 {% block content %}
-<h1>Recorded Service {{ serviceItem['description'] }} done at {{ serviceItem['milesDoneAt'] }}</h1>
-<p><a href='{{ url_for("serveSingleVehiclePage", vehicleID=serviceItem["vehicleID"]) }}'> Back to Vehicle Page</a></p>
+<h1>Recorded Service {{ serviceItem['description'] }} done at {{ serviceItem['milesDoneAt'] }} miles</h1>
+<p><a href='{{ url_for("serveSingleVehiclePage", vehicleID=serviceItem["vehicleID"]) }}'> Back to Vehicle Page</a>
+</p>
 {% endblock %}

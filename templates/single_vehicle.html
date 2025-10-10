@@ -28,7 +28,10 @@
             <td>{{ item['description'] }}</td>
             <td>{{ item['serviceInterval'] }} miles</td>
             <td>{{ item['dueAtMiles'] }} miles</td>
-            <td><a href="url_for('serviceDoneUI', itemID=item['id'])">Update Service Done</a>|<a href=''>Edit Service</a></td>
+            <td>
+                <a href="{{ url_for('updateServiceDoneUI', itemID=item['id']) }}">Update Service Done</a>|
+                <a href=''>Edit Service</a>
+            </td>
         </tr>
         {% endfor %}
         <tr>

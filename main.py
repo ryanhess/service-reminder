@@ -6,8 +6,8 @@ from mysql.connector import connect, Error
 from flask import Flask, request, Response, render_template, redirect, url_for
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
-import DB_Builder
-from enum import Enum
+# import DB_Builder
+import traceback
 
 ODOPROMPTINTERVAL = 7  # the number of days to wait before prompting a regular ODO reading
 
@@ -230,14 +230,27 @@ def updateODO(vehID=0, newODO=0):
 # def:
 # update the records indicating a service was done at a given miles
 # should remove the service due flag, update the mileage deadline, and update the ODO for the vehicle only if this ODO is greater than the ODO stored for the vehicle.
-def updateServiceDone(itemID, itemODO):
+def updateServiceDone(itemID: int, itemODO: float):
     '''
     :raises NotInDatabaseError if item doesnt exist.
     Does not raise any exception if the itemODO is less than the veh parent miles
     it will just not update the parent veh in that case.
+    :raises TypeError if the number cant be cast to a float
+    :raises ValueError if the number is less than 0
+    or greater than the max value allowable in the DB.
     '''
 
     # check for not the right type
+    try:
+        itemODO = float(itemODO)
+    except ValueError:
+        raise TypeError('could not cast itemODO to float.')
+    
+    if itemODO < 0:
+        raise ValueError("itemODO can't be less than 0.")
+    elif itemODO > getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles'):
+        raise ValueError(f"itemODO can't be greater than {getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles')}")
+
     # update the miles of the parent vehicle, only if the new ODO is greater than the previous ODO.
     res = querySQL(f"""
         SELECT vehicleID, miles FROM vehicles
@@ -736,13 +749,13 @@ def handleUpdateServDonePOST(itemID: int):
     except Exception() as e:
         breakpoint()
         raise e
+    
+    return miles
 
 ### WEB UI ROUTES ###
 
 # Serves the homepage, which consists of a welcome message
 # and nav links to Home and Users
-
-
 @app.route("/", methods=['GET'])
 def serveHome():
     return render_template('index.html')
@@ -862,7 +875,7 @@ def serveSingleVehiclePage(vehicleID):
     }
 
     res = querySQL(f'''
-        SELECT description, serviceInterval, dueAtMiles
+        SELECT itemID, description, serviceInterval, dueAtMiles
         FROM serviceSchedule
         WHERE vehicleID = {vehicleID}
     ''')
@@ -870,9 +883,10 @@ def serveSingleVehiclePage(vehicleID):
     serviceSched = []
     for result in res:
         serviceSched.append({
-            'description': result[0],
-            'serviceInterval': result[1],
-            'dueAtMiles': result[2]
+            'id': result[0],
+            'description': result[1],
+            'serviceInterval': result[2],
+            'dueAtMiles': result[3]
         }) 
     
     return render_template('single_vehicle.html', vehicle=vehicle, serviceSched=serviceSched)
@@ -969,7 +983,7 @@ def updateOdoUI(vehicleID):
 
 
 @app.route('/Service/<itemID>/Update-Service-Done', methods=['GET', 'POST'])
-def serviceDoneUI(itemID):
+def updateServiceDoneUI(itemID):
     servDoneForm = 'service_done_form.html'
     servDoneConf = 'service_done_confirmation.html'
     try:
@@ -981,19 +995,25 @@ def serviceDoneUI(itemID):
         SELECT itemID, vehicleID, description FROM serviceSchedule
         WHERE itemID = %s
     ''', val=(itemID, ))
-    serviceItem = {'id': res[0][0], 'vehicleID': res[0][1], 'description': res[0][2]}
+    serviceItem = {'id': res[0][0],
+                   'vehicleID': res[0][1],
+                   'description': res[0][2],
+                   'milesDoneAt': 0}
     
     if request.method == 'GET':
         return render_template(servDoneForm, serviceItem=serviceItem)
 
     elif request.method == 'POST':
         try:
-            handleUpdateServDonePOST(itemID)
+            serviceItem['milesDoneAt'] = handleUpdateServDonePOST(itemID)
         except FormInputError as f:
+            traceback.print_exc()
             return render_template(servDoneForm, serviceItem=serviceItem, errorMessage=str(f))
         except DuplicateItemError as d:
+            traceback.print_exc()
             return render_template(servDoneForm, serviceItem=serviceItem, errorMessage=str(d))
         except Exception as e:
+            traceback.print_exc()
             print(e)
             return Response(status=400)
 

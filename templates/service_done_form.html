@@ -3,11 +3,12 @@
 {% block title %}Update Service Done{% endblock %}
 
 {% block content %}
-<h1>Update Service Done for {{ serviceItem['description'] }}</h1>
+<h2>Update Service Done for:</h2>
+<h1>{{ serviceItem['description'] }}</h1>
 {% if errorMessage %}
 <div style="color:red">Please try again. {{errorMessage}}</div>
 {% endif %}
-<form action="{{ url_for('serviceDoneUI', serviceItem['id']) }}" method="POST">
+<form action="{{ url_for('updateServiceDoneUI', itemID=serviceItem['id']) }}" method="POST">
     <label for="miles">Odometer Reading</label>
     <input type="text" id="miles" name="miles" required>
     <br>
