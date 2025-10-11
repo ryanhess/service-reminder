@@ -5,7 +5,7 @@
 {% block content %}
 <h1>New Vehicle Submitted.</h1>
 <br>
-<p><a href='{{ url_for("serveSingleUserPage", userID=userID) }}'>{{ vehicle['username'] }},</a></p>
+<p><a href='{{ url_for("serveSingleUserPage", userID=user["id"]) }}'>{{ user['username'] }},</a></p>
 <p>{{ vehicle['displayName'] }} has been added to your Vehicles.</p>
 <br>
 <p>Add service items on its <a href='{{ url_for("serveSingleVehiclePage", vehicleID=vehicle["id"]) }}'>vehicle page.</a>

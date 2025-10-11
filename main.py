@@ -99,8 +99,8 @@ def querySQL(stmt="", val="", many=False):
             connection.commit()
 
             return result
-
     except Error as e:
+        breakpoint()
         raise Exception(e)
 
 
@@ -553,36 +553,53 @@ def validateItemIdInURL(itemID: int):
 def handleNewVehiclePOST(userID):
     print(request.headers)
     print(request.form)
-
+    if userID == 6:
+        breakpoint()
     try:
         userID = validateUserIdInURL(userID)
     except Exception as e:
         raise e
 
     # nickname
-    nick = request.form['nickname']
+    try:
+        nick = request.form['nickname']
+    except KeyError:
+        raise KeyError('required field missing from request')
+        # if the nickname is None, the request will not contain
+        # a nickname key at all, so it will throw a 
+        # keyError
+        pass
 
     # year
     # check that it is present
     # check that it will convert to a YEAR type in SQL
-    year = request.form['year']
-    if year == '':
-        raise FormInputError('Missing a year for the vehicle.')
+    try:
+        year = request.form['year']
+    except KeyError:
+        raise KeyError('required field missing from request')
+    if year == '' or not year:
+        raise FormInputError('year is blank')
 
     # try casting the input into a SQL year datatype
     res = querySQL('''
         SELECT CAST(%s AS YEAR)
     ''', val=(year, ))
     if not res[0][0]:
-        raise FormInputError('please enter a valid year')
+        raise FormInputError('not a valid year')
 
     # make
-    make = request.form['make']
+    try:
+        make = request.form['make']
+    except KeyError:
+        raise KeyError('required field missing from request')
     if make == '':
         raise FormInputError('Missing a make for the vehicle.')
 
     # model
-    model = request.form['model']
+    try:
+        model = request.form['model']
+    except KeyError:
+        raise KeyError('required field missing from request')
     if model == '':
         raise FormInputError('Missing a model for the vehicle.')
 
@@ -602,14 +619,17 @@ def handleNewVehiclePOST(userID):
 
     # now try to add the odometer reading.
     # updateODO
-    miles = request.form['miles']
+    try:
+        miles = request.form['miles']
+    except KeyError:
+        raise KeyError('required field missing from request')
+    
     if len(miles) > 0:
         try:
             updateODO(vehID=newVehID, newODO=miles)
         except TypeError:
             raise FormInputError('miles is not a number.')
         except Exception as e:
-            breakpoint()
             raise e
 
     # for now dont check for duplicate vehicles.
@@ -622,7 +642,7 @@ def handleNewVehiclePOST(userID):
     ''', val=(userID, ))
     username = res[0][0]
 
-    return {'username': username, 'id': newVehID, 'displayName': dispName}
+    return {'id': newVehID, 'displayName': dispName, 'miles': miles}
 
     # miles, if it is empty string, then leave miles NULL
 
@@ -898,27 +918,33 @@ def serveSingleVehiclePage(vehicleID):
 @app.route('/Users/<userID>/New-Vehicle', methods=['GET', 'POST'])
 def newVehicleUI(userID):
     newVehForm = 'new_vehicle_form.html'
-    newVehConf = 'new_vehicle_submitted.html'
+    newVehConf = 'new_vehicle_conf.html'
     try:
         userID = validateUserIdInURL(userID)
     except:
         return Response(status=404)
+    
+    res = querySQL('''
+        SELECT userID, username FROM users
+        WHERE userID = %s
+    ''', val=(userID,))
+    user = {'id': res[0][0], 'username': res[0][1]}
 
     if request.method == 'GET':
-        return render_template(newVehForm, userID=userID)
+        return render_template(newVehForm, user=user)
 
     elif request.method == 'POST':
         try:
             vehicle = handleNewVehiclePOST(userID)
         except FormInputError as f:
-            return render_template(newVehForm, userID=userID, errorMessage=str(f))
+            return render_template(newVehForm, user=user, errorMessage=str(f))
         except DuplicateItemError as d:
-            return render_template(newVehForm, userID=userID, errorMessage=str(d))
+            return render_template(newVehForm, user=user, errorMessage=str(d))
         except Exception as e:
             print(e)
             return Response(status=400)
 
-        return render_template(newVehConf, userID=userID, vehicle=vehicle)
+        return render_template(newVehConf, user=user, vehicle=vehicle)
     else:
         pass
 

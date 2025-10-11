@@ -812,13 +812,17 @@ def test_newUserUIPOST(client, mocker):
     assert not runTest(usr='###fsf23', phone='+14838812931')
 
 
-def test_newUserUIPOST(client, mocker):
-    spiedUser = spiedPhone = spiedErrMsg = None
+# empty
+def test_newVehicleUIPOST(client, mocker):
+    spiedDispName = spiedMiles = spiedErrMsg = None
 
-    def mock_render_template(unusedTemplateFile="", userInfo={'username': None, 'phone': None}, error=False, errorMessage=""):
-        nonlocal spiedUser, spiedPhone, spiedErrMsg
-        spiedUser = userInfo['username']
-        spiedPhone = userInfo['phone']
+    def mock_render_template(unusedTemplateFile="",
+            user={'id': None, 'username': None},
+            vehicle={'id': None, 'displayName': None, 'miles': None},
+            errorMessage=""):
+        nonlocal spiedDispName, spiedMiles, spiedErrMsg
+        spiedDispName = vehicle['displayName']
+        spiedMiles = vehicle['miles']
         spiedErrMsg = errorMessage
 
         return Response(status=200)
@@ -826,74 +830,116 @@ def test_newUserUIPOST(client, mocker):
     renderMock = mocker.patch('main.render_template')
     renderMock.side_effect = mock_render_template
 
-    # checks that username is in db and that its phone is 'phone'
-    # if either is not true, return false.
-    # should be passed sanitized and properly formatted data or
-    # it will return false.
-    def checkUserInDB(usrN, phone):
-        res = main.querySQL(stmt=f'''
-            SELECT userID From users
-            WHERE username = '{usrN}'
-        ''')
+    # check that the vehicle display name is in the database
+    # with the mileage given
+    def checkVehInDB(dispName, miles):
+        res = main.querySQL(stmt='''
+            SELECT vehicleID From vehicles
+            WHERE username = %s
+        ''', val=(dispName,))
 
         if res == []:
             return False
         else:
-            userID = res[0][0]
-            res = main.querySQL(stmt=f'''
-                SELECT phone FROM users
-                WHERE userID = '{userID}'
-            ''')
-            return res[0][0] == str(phone)
+            vehID = res[0][0]
+            res = main.querySQL(stmt='''
+                SELECT miles FROM vehicles
+                WHERE vehicleID = %s
+            ''', val=(vehID, ))
+            return float(res[0][0]) == float(miles)
 
     # runs some tests inside and returns the error message that would be
     # displayed so inputs can be asserted outside.
     # if no error, returns 0 so that "assert not runTest()" is asserting that
     # the function runs with no errors.
-    def runTest(usr, phone):
-        nonlocal spiedUser, spiedPhone, spiedErrMsg
+    def runTest(userID, vehicle):
+        nonlocal spiedDispName, spiedMiles, spiedErrMsg
         with main.app.test_request_context():
-            route = url_for('newUserUI')   
-        form = {
-            'username': usr,
-            'phone': phone
-        }
+            route = url_for('newVehicleUI', userID=userID)   
 
-        response = client.post(path=route, data=form)
+        response = client.post(path=route, data=vehicle)
 
-        # no matter what the server should respond with a webpage.
-        # in this case, I am artificially generating responses
-        # but if it gets to render_template without errors I think that
-        # is enough for the test function to test.
-        assert response.status_code == 200
+        # we need to be able to detect that specifically:
+        # the function fails to return a 200 code. This is
+        # by changing the returned message to indicate the
+        # response code if not 200.
+        if response.status_code != 200:
+            return response.status_code
 
         if spiedErrMsg:
             msg = spiedErrMsg
         else:
-            assert checkUserInDB(spiedUser, spiedPhone)
+            nick = vehicle['nickname']
+            calcDispName = nick if nick and len(nick) > 0 \
+                else vehicle['year'] + ' ' + vehicle['make'] \
+                + vehicle['model']
+            assert calcDispName == spiedDispName
+            assert vehicle['miles'] == spiedMiles
+            assert checkVehInDB(calcDispName, vehicle['miles'])
             msg = 0
 
-        spiedUser = spiedPhone = spiedErrMsg = None
+        spiedDispName = spiedMiles = spiedErrMsg = None
 
         return msg
+    
+    # these are edge cases that SHOULD be caught somewhere and
+    # throw 400
+    assert 400 == runTest(userID=2, vehicle={'nickname': 'hello; drop table users',
+                                            'year': '2000',
+                                            'make': 'lex',
+                                            'model': 'blah; drop table users',
+                                            'miles': None})
+    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
+                                            'year': '2000',
+                                            'make': 'lex',
+                                            'model': 'blah; drop table users',
+                                            'miles': None})
+    assert 400 == runTest(userID=1, vehicle={})
+    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello'})
+    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
+                                            'year': '2000'})
+    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
+                                            'year': '2000',
+                                            'make': 'lex'})
+    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
+                                            'year': '2000',
+                                            'make': 'lex',
+                                            'model': 'blah'})
 
-    # asserting a username that already exists
-    assert 'username is already in use' in runTest(
-        usr='ryanhess', phone='1414144444')
+    # assert some input errors.
 
-    # asserting a phone number that already exists
-    assert 'phone number is already in use' in runTest(
-        usr='thepinkpanther', phone='+18777804236'
-    )
+    assert 'year is blank' in \
+        runTest(userID=3, vehicle={'nickname': 'hello',                           
+                                    'year': '',
+                                    'make': 'lex',
+                                    'model': 'blah',
+                                    'miles': 20})
 
-    # asserting correct operation with good inputs
-    assert not runTest(usr='newUserTest123', phone='+12838812931')
-    assert not runTest(usr='###fsf23', phone='+14838812931')
-
-
-# empty
-def test_newVehicleUIPOST(client, mocker):
-    return
+    assert 'not a valid year' in \
+        runTest(userID=1, vehicle={'nickname': 'hello',                           
+                                    'year': '1',
+                                    'make': 'lex',
+                                    'model': 'blah',
+                                    'miles': ''})
+    # assert 'valid year' in \
+    #     runTest(userID=1, vehicle={'nickname': 'hello',                           
+    #                                 'year': 'not a year',
+    #                                 'make': 'lex',
+    #                                 'model': 'blah',
+    #                                 'miles': None})
+    
+    # # having no nickname in the request should be OK
+    # assert not runTest(userID=3, vehicle={'nickname': None,                           
+    #                                 'year': '2000',
+    #                                 'make': 'lex',
+    #                                 'model': 'blah',
+    #                                 'miles': None})
+    # assert not runTest(userID=4, vehicle={'nickname': '',                           
+    #                                 'year': '2000',
+    #                                 'make': 'lex',
+    #                                 'model': 'blah',
+    #                                 'miles': None})
+    
 
 
 # empty
