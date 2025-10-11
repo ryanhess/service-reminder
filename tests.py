@@ -296,7 +296,7 @@ def test_updateServiceDone():
 
             sampleServiceSched = [
                 (1, 1, "Change Eng. Oil and Filter", 5000, 6030, True),
-                (1, 1, "Rotate and Inspect Tires", 5000, 105300, True),
+                (1, 1, "Rotate and Inspect Tires", 5000, 95300, True),
                 (1, 1, "Re-torque drive shaft bolts", 15000, 105000, True),
                 (2, 1, "Change Eng. Oil and Filter", 5000, 125000, True),
                 (2, 1, "Replace Brake Fluid", 10000, 116000, True),
@@ -672,38 +672,62 @@ def test_webUserRoutes(client):
     response = client.get('/Users')
     assert response.status_code == 200
 
-    # response = client.get('/Users/New')
-    # assert response.status_code == 200
+    response = client.get('/Users/New')
+    assert response.status_code == 200
 
-    # response = client.get('/Users/1')
-    # assert response.status_code == 200
+    response = client.get('/Users/1')
+    assert response.status_code == 200
 
-    # response = client.get('/Users/blah')
-    # assert response.status_code == 404
+    response = client.get('/Users/blah')
+    assert response.status_code == 404
 
-    # response = client.get('/Users/100000000000')
-    # assert response.status_code == 404
+    response = client.get('/Users/100000000000')
+    assert response.status_code == 404
 
-    # response = client.get('/Users/1/New-Vehicle')
-    # assert response.status_code == 200
+    response = client.get('/Users/1/New-Vehicle')
+    assert response.status_code == 200
 
-    # response = client.get('/Vehicles/1')
-    # assert response.status_code == 200
+    response = client.get('/Vehicles/1')
+    assert response.status_code == 200
 
-    # response = client.get('/Vehicles/0')
-    # assert response.status_code == 404
+    response = client.get('/Vehicles/0')
+    assert response.status_code == 404
 
-    # response = client.get('/Vehicles/blah')
-    # assert response.status_code == 404
+    response = client.get('/Vehicles/blah')
+    assert response.status_code == 404
 
-    # response = client.get('/Vehicles/1/New-Service')
-    # assert response.status_code == 200
+    response = client.get('/Vehicles/1/New-Service')
+    assert response.status_code == 200
     
-    # response = client.get('/Vehicles/0/New-Service')
-    # assert response.status_code == 404
+    response = client.get('/Vehicles/0/New-Service')
+    assert response.status_code == 404
 
-    # response = client.get('/Vehicles/blah/New-Service')
-    # assert response.status_code == 404
+    response = client.get('/Vehicles/blah/New-Service')
+    assert response.status_code == 404
+
+    response = client.get('/Vehicles/4/Update-Odometer')
+    assert response.status_code == 200
+
+    response = client.get('/Vehicles/1/Update-Odometer')
+    assert response.status_code == 200
+
+    response = client.get('/Vehicles/0/Update-Odometer')
+    assert response.status_code == 404
+
+    response = client.get('/Vehicles/blah/Update-Odometer')
+    assert response.status_code == 404
+
+    response = client.get('/Service/4/Update-Service-Done')
+    assert response.status_code == 200
+
+    response = client.get('/Service/1/Update-Service-Done')
+    assert response.status_code == 200
+
+    response = client.get('/Service/0/Update-Service-Done')
+    assert response.status_code == 404
+
+    response = client.get('/Service/blah/Update-Service-Done')
+    assert response.status_code == 404
 
 # simple createUser function
 # check that the user is created.
@@ -865,3 +889,23 @@ def test_newUserUIPOST(client, mocker):
     # asserting correct operation with good inputs
     assert not runTest(usr='newUserTest123', phone='+12838812931')
     assert not runTest(usr='###fsf23', phone='+14838812931')
+
+
+# empty
+def test_newVehicleUIPOST(client, mocker):
+    return
+
+
+# empty
+def test_UpdateODOUIPOST(client, mocker):
+    return
+
+
+# empty
+def test_newServiceUIPOST(client, mocker):
+    return
+
+
+# empty
+def test_UpdateServiceDoneUIPOST(client, mocker):
+    return
