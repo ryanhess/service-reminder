@@ -237,8 +237,23 @@ def updateServiceDone(itemID: int, itemODO: float):
     it will just not update the parent veh in that case.
     :raises TypeError if the number cant be cast to a float
     :raises ValueError if the number is less than 0
-    or greater than the max value allowable in the DB.
+    or greater than the max value allowable in the DB - service interval.
     '''
+
+    res = querySQL(stmt='''
+        SELECT serviceInterval, milesLastDone FROM serviceSchedule
+        WHERE itemID = %s
+    ''', val=(itemID, ))
+    if res == []:
+        raise NotInDatabaseError(
+            f"serviceSchedule record for itemID = {itemID} does not exist.")
+    interval, lastMiles = res[0]
+
+    res = querySQL(f"""
+        SELECT vehicleID, miles FROM vehicles
+        WHERE vehicles.vehicleID = (SELECT vehicleID FROM serviceSchedule WHERE serviceSchedule.itemID = {itemID})
+    """)
+    vehID, parentMiles = res[0]
 
     # check for not the right type
     try:
@@ -247,32 +262,25 @@ def updateServiceDone(itemID: int, itemODO: float):
         raise TypeError('could not cast itemODO to float.')
     
     if itemODO < 0:
-        raise ValueError("itemODO can't be less than 0.")
-    elif itemODO > getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles'):
-        raise ValueError(f"itemODO can't be greater than {getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles')}")
+        raise ValueError("can't be less than 0.")
+    elif itemODO > (getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles') - float(interval)):
+        raise ValueError(f"can't be greater than {getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles') - interval} miles")
+    elif itemODO < lastMiles:
+        raise ValueError(f"can't be less than {lastMiles}, when this service was last done.")
 
     # update the miles of the parent vehicle, only if the new ODO is greater than the previous ODO.
-    res = querySQL(f"""
-        SELECT vehicleID, miles FROM vehicles
-        WHERE vehicles.vehicleID = (SELECT vehicleID FROM serviceSchedule WHERE serviceSchedule.itemID = {itemID})
-    """)
-    if res == []:
-        raise NotInDatabaseError(
-            f"serviceSchedule record for itemID = {itemID} does not exist.")
-
     # dont need exceptions to percolate up from here for miles being below parent miles.
     # so check that here.
-    vehID, parentMiles = res[0]
     if not parentMiles or itemODO > parentMiles:
         # update the miles of the parent vehicle.
         updateODO(vehID, itemODO)
 
-    # remove the service flag and update the dueAtMiles.
-    querySQL(f"""
+    # remove the service flag.
+    querySQL('''
         UPDATE serviceSchedule
-        SET dueAtMiles = {itemODO} + serviceInterval, servDueFlag = FALSE
-        WHERE itemID = {itemID}
-    """)
+        SET milesLastDone = %s, servDueFlag = FALSE
+        WHERE itemID = %s
+    ''', val=(itemODO, itemID))
 
 
 # def:
@@ -657,18 +665,11 @@ def handleNewServicePOST(vehicleID: int):
         try:
             milesLastDone = float(milesLastDone)
             if milesLastDone < 0:
-                raise ValueError()
+                raise FormInputError('Miles Last Done cannot be less than zero')
         except ValueError: 
             raise FormInputError('Miles Last Done not a valid number.')
-        
-        dueAt = milesLastDone + interval
     else:
-        result = querySQL(stmt='''
-            SELECT miles FROM vehicles
-            WHERE vehicleID = %s
-        ''', val=(vehicleID, ))
-        vehODO = result[0][0]
-        dueAt = float(vehODO) + interval
+        milesLastDone = 0
 
     # check if an item whose description matches, is already in the DB.
     # if so, raise the duplicate item error.
@@ -690,11 +691,11 @@ def handleNewServicePOST(vehicleID: int):
 
     result = querySQL(stmt='''
         INSERT INTO serviceSchedule
-        (vehicleID, userID, description, serviceInterval, dueAtMiles)
+        (vehicleID, userID, description, serviceInterval, milesLastDone)
         VALUES (%s, %s, %s, %s, %s)
-    ''', val=(vehicleID, userID, description, interval, dueAt))
+    ''', val=(vehicleID, userID, description, interval, milesLastDone))
 
-    return {'description': description, 'interval': interval }
+    return {'description': description, 'interval': interval}
 
 
 def handleUpdateOdoPOST(vehicleID: int):
@@ -723,6 +724,8 @@ def handleUpdateOdoPOST(vehicleID: int):
         breakpoint()
         raise e
     
+    return miles
+    
 
 def handleUpdateServDonePOST(itemID: int):
     print(request.headers)
@@ -742,10 +745,10 @@ def handleUpdateServDonePOST(itemID: int):
     # updateServiceDone with error checking
     try:
         updateServiceDone(itemID=itemID, itemODO=miles)
-    except ValueError:
-        raise FormInputError('Odometer reading cannot be less than the last recorded odometer reading for the vehicle.')
+    except ValueError as e:
+        raise FormInputError(f'{e}')
     except TypeError:
-        raise FormInputError('Odometer reading not a valid number')
+        raise FormInputError('Odometer reading not a number')
     except Exception() as e:
         breakpoint()
         raise e
@@ -968,7 +971,7 @@ def updateOdoUI(vehicleID):
 
     elif request.method == 'POST':
         try:
-            handleUpdateOdoPOST(vehicleID)
+            vehicle['miles'] =  handleUpdateOdoPOST(vehicleID)
         except FormInputError as f:
             return render_template(updateODOForm, vehicle=vehicle, errorMessage=str(f))
         except DuplicateItemError as d:

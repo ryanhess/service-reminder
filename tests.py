@@ -227,33 +227,30 @@ def test_updateODO(mocker):
 # in oher words, the DB integrity is preserved and the odo values is rejected.
 def test_updateServiceDone():
     def runTest(id, odo):
-        with DBConnection() as db:
-            curs = db.cursor
+        # Pass any raised exceptions out to the caller.
+        try:
+            main.updateServiceDone(itemID=id, itemODO=odo)
+        except:
+            raise
+        
+        res = main.querySQL(f'''
+            SELECT vehicleID, serviceInterval, dueAtMiles, servDueFlag
+            FROM serviceSchedule
+            WHERE itemID = {id}
+        ''')
 
-            # Pass any raised exceptions out to the caller.
-            try:
-                main.updateServiceDone(itemID=id, itemODO=odo)
-            except:
-                raise
+        veh, interval, dueAt, flag = res[0]
 
-            curs.execute(f'''
-                SELECT vehicleID, serviceInterval, dueAtMiles, servDueFlag
-                FROM serviceSchedule
-                WHERE itemID = {id}
-            ''')
+        res = main.querySQL(f'''
+            SELECT miles FROM vehicles
+            WHERE vehicleID = {veh}''')
+        parentMiles = float(res[0][0])
 
-            res = curs.fetchall()
-            veh, interval, dueAt, flag = res[0]
+        assert not flag
+        assert float(dueAt) == round(odo, 1) + float(interval)
 
-            curs.execute(f"SELECT miles FROM vehicles WHERE vehicleID = {veh}")
-            res = curs.fetchall()
-            parentMiles = float(res[0][0])
-
-            assert not flag
-            assert float(dueAt) == round(odo, 1) + float(interval)
-
-            # should normally be true, should be false when odo is less than original parentMiles
-            return round(odo, 1) == parentMiles
+        # should normally be true, should be false when odo is less than original parentMiles
+        return round(odo, 1) == parentMiles
 
     def populateDB():
         # we need a sample database with a vehicle and a few service items with true flags and some with a false flag.
@@ -293,20 +290,20 @@ def test_updateServiceDone():
             cur.executemany(sampleVehiclesStatement, sampleVehicles)
 
             sampleServSchedStmt = """
-                INSERT INTO serviceSchedule (vehicleID, userID, description, serviceInterval, dueAtMiles, servDueFlag)
+                INSERT INTO serviceSchedule (vehicleID, userID, description, serviceInterval, milesLastDone, servDueFlag)
                 VALUES ( %s, %s, %s, %s, %s, %s )
             """
 
             sampleServiceSched = [
-                (1, 1, "Change Eng. Oil and Filter", 5000, 11030, True),
-                (1, 1, "Rotate and Inspect Tires", 5000, 110300, True),
-                (1, 1, "Re-torque drive shaft bolts", 15000, 120000, True),
-                (2, 1, "Change Eng. Oil and Filter", 5000, 130000, True),
-                (2, 1, "Replace Brake Fluid", 10000, 126000, True),
+                (1, 1, "Change Eng. Oil and Filter", 5000, 6030, True),
+                (1, 1, "Rotate and Inspect Tires", 5000, 105300, True),
+                (1, 1, "Re-torque drive shaft bolts", 15000, 105000, True),
+                (2, 1, "Change Eng. Oil and Filter", 5000, 125000, True),
+                (2, 1, "Replace Brake Fluid", 10000, 116000, True),
                 (3, 2, "Change tires", 1, 0, False),
-                (4, 3, "change oil", 1, 6000, False),
-                (5, 4, "flush brakes", 2, 100, True),
-                (6, 4, "set alignmnet", 10, 1029000, False)
+                (4, 3, "change oil", 1, 5999, False),
+                (5, 4, "flush brakes", 2, 98, True),
+                (6, 4, "set alignmnet", 10, 1028990, False)
             ]
 
             cur.executemany(sampleServSchedStmt, sampleServiceSched)
