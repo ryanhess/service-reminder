@@ -63,7 +63,10 @@ def createTables(connection, cursor):
             userID INT NOT NULL,
             description LONGTEXT NOT NULL,
             serviceInterval INT NOT NULL CHECK (serviceInterval > 0),
-            dueAtMiles DECIMAL(8,1) CHECK (dueAtMiles >= 0),
+            milesLastDone DECIMAL(8,1) DEFAULT 0,
+            dueAtMiles DECIMAL(8,1) GENERATED ALWAYS AS (
+                milesLastDone + serviceInterval
+            ),
             servDueFlag BOOLEAN DEFAULT FALSE,
             PRIMARY KEY (itemID),
             FOREIGN KEY (vehicleID) REFERENCES vehicles(vehicleID),
@@ -123,7 +126,7 @@ def loadSampleData(connection, cursor):
     cursor.executemany(sampleVehiclesStatement, sampleVehicles)
 
     sampleServSchedStmt = """
-        INSERT INTO serviceSchedule (vehicleID, userID, description, serviceInterval, dueAtMiles)
+        INSERT INTO serviceSchedule (vehicleID, userID, description, serviceInterval, milesLastDone)
         VALUES ( %s, %s, %s, %s, %s )
     """
     sampleServiceSched = [
