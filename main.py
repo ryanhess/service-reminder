@@ -12,20 +12,26 @@ import traceback
 ODOPROMPTINTERVAL = 7  # the number of days to wait before prompting a regular ODO reading
 
 #error messages
-BELOWZERO = 'cannot be negative.'
+BELOWZERO = '{what} cannot be negative.'
+ODOBELOWZERO = 'Odometer cannot be negative'
 ABOVEMAX = 'cannot be more than {max}'
 BELOWMIN = 'cannot be less than {min}'
-NOTANUMBER = "{what} cannot be interpreted as a number"
-DUPLICATEPARAM = 'That {param} is already in use.'
+NOTANUMBER = "{what} is not a number"
+ODONOTANUMBER = 'Odometer reading not a number.'
+ILLEGALDUPLICATE = '{param} is already in the database and cannot be duplicated.'
+ILLEGALDUPLICATESERVICE = 'A service item called "{desc}" already exists for this vehicle.'
 ODODECREASING = "New odometer can't be less than current odometer"
-FORMFIELDMISSING = 'requred field {fieldName} missing from request'
+PARAMNOTFOUNDINREQUEST = 'requred parameter "{param}" missing from request'
+FORMFIELDBLANK = "'{field}' can't be blank"
 NOELIGIBLEVEHICLE = "no eligible vehicle for user {userID}"
 NOTINDB = '{type} {id} not found in DB'
-INVALIDID = 'parameter is not a valid {id}'
-breakpoint()
+INVALIDPARAM = 'parameter is not a valid {param}'
+UNCAUGHTEXCEPTION = 'uncaught exception raised'
 #text messages
+PHONENOTINDBSMS = "your phone number is not associated with Service Reminders."
 SERVICENOTIFICATION = '{username}, {displayName} is due for item: "{desc}" at {dueAt} miles.'
-
+NOELIGIBLEVEHICLESMS = "none of your vehicles need an odometer update."
+SUCCESSFULODOUPDATESMS = "Successfully updated the odometer"
 
 app = Flask(__name__)
 
@@ -34,7 +40,6 @@ app = Flask(__name__)
 
 def getDateToday():
     return date.today()
-
 
 def getDateTodayStr():
     return getDateToday().strftime('%Y-%m-%d')
@@ -192,29 +197,18 @@ def updateODO(vehID=0, newODO=0):
     :raises TypeError if called with not a number.
     :raises NotInDatabaseError if the veh doesnt exist
     :raises ValueError if the param is less than the current odo.
+    :raises ValueError also if the param is less than zero.
     '''
     today = getDateToday()
 
-    try:
-        newODO = float(newODO)
-    except ValueError as e:
-        raise TypeError(NOTANUMBER)
-        
-    if newODO < curMiles:
-        raise ValueError(ODODECREASING)
-    
-    if newODO < 0:
-        raise ValueError(BELOWZERO)
-
-    if newODO is None:
-        newODO = 0
-
-    res = querySQL(f"""
-        SELECT miles, dateLastODO, milesPerDay FROM vehicles WHERE vehicleID = {vehID}
-    """)
+    res = querySQL(stmt='''
+        SELECT miles, dateLastODO, milesPerDay 
+        FROM vehicles
+        WHERE vehicleID = %s
+    ''', val=(vehID, ))
 
     if res == []:
-        raise NotInDatabaseError(NOTINDB)
+        raise NotInDatabaseError(NOTINDB.format(type='vehicle', id=vehID))
 
     curMiles, curOdoDate, curMilesPerDay = res[0]
 
@@ -230,6 +224,20 @@ def updateODO(vehID=0, newODO=0):
         curMiles = 0
         curOdoDate = today
         curMilesPerDay = 0
+
+    try:
+        newODO = float(newODO)
+    except ValueError as e:
+        raise TypeError(NOTANUMBER)
+    
+    if newODO < 0:
+        raise ValueError(ODOBELOWZERO)
+        
+    if newODO < curMiles:
+        raise ValueError(ODODECREASING)
+
+    if newODO is None:
+        newODO = 0
 
     # we have to account for if the odo is updated again on the same day.
     try:
@@ -278,7 +286,7 @@ def updateServiceDone(itemID: int, itemODO: float):
         raise TypeError(NOTANUMBER)
     
     if itemODO < 0:
-        raise ValueError(BELOWZERO)
+        raise ValueError(BELOWZERO.format(what='itemODO'))
     elif itemODO > (getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles') - float(interval)):
         raise ValueError(ABOVEMAX + str(getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles') - interval) + ' miles')
     elif itemODO < lastMiles:
@@ -302,12 +310,13 @@ def updateServiceDone(itemID: int, itemODO: float):
 # def:
 # check the database for service that is due and notify the relevant user. The caller of this function sets the frequency of the reminders.
 def notifyOneService(serviceItemID):
-    res = querySQL(stmt=f"""
+    res = querySQL(stmt='''
         SELECT userID, vehicleID, description, dueAtMiles FROM serviceSchedule
-        WHERE itemID = {serviceItemID}
-    """)
+        WHERE itemID = %s
+    ''', val=(serviceItemID, ))
+
     if res == []:
-        raise NotInDatabaseError(NOTINDB.format(serviceItemID))
+        raise NotInDatabaseError(NOTINDB.format(type='service', id=serviceItemID))
     usrID, vehID, desc, dueAt = res[0]
 
     res = querySQL(stmt=f"""
@@ -417,7 +426,7 @@ def receiveOdoMsg():
             WHERE phone = %s
         """, val=(phone,))
         if res == []:
-            raise NotInDatabaseError(NOTINDB.format(user=phone))
+            raise NotInDatabaseError(NOTINDB.format(type='user', id=phone))
 
         userID = res[0][0]
 
@@ -432,14 +441,14 @@ def receiveOdoMsg():
     try:
         vehID, odo = parseRequest()
     except NotInDatabaseError:
-        errStr = "your phone number is not associated with Service Reminders."
+        errStr = PHONENOTINDBSMS
     else:
         if not vehID:
-            errStr = "none of your vehicles need an odometer update."
+            errStr = NOELIGIBLEVEHICLESMS
         elif not strIsFloat(odo):
-            errStr = NOTANUMBER.format(odo)
+            errStr = ODONOTANUMBER
         elif float(odo) < 0:
-            errStr = BELOWZERO
+            errStr = ODOBELOWZERO
         elif float(odo) > maxODO:
             errStr = ABOVEMAX.format(max=maxODO)
         else:
@@ -462,8 +471,7 @@ def receiveOdoMsg():
             val=(vehID,)
         )
         displayName = res[0][0]
-        resp.message(
-            f"Successfully updated the odometer for {displayName}.")
+        resp.message(SUCCESSFULODOUPDATESMS + f' for {displayName}')
 
     return Response(str(resp), mimetype='text/xml')
 
@@ -484,14 +492,14 @@ def handleNewUserPOST():
         WHERE username = %s
     ''', val=(username,))
     if res != []:
-        raise DuplicateItemError(DUPLICATEPARAM.format(param=username))
+        raise DuplicateItemError(ILLEGALDUPLICATE.format(param='username'))
 
     res = querySQL('''
         SELECT userID FROM users
         WHERE phone = %s
     ''', val=(phone,))
     if res != []:
-        raise DuplicateItemError(DUPLICATEPARAM.format(param=phone))
+        raise DuplicateItemError(ILLEGALDUPLICATE.format(param='phone'))
 
     # finally, with the cleaned and validated data, add it to the database and return the cleaned data.
     try:
@@ -512,7 +520,7 @@ def validateUserIdInURL(userID):
     try:
         userID = int(userID)
     except ValueError:
-        raise ValueError(INVALIDID.format('userID'))
+        raise ValueError(INVALIDPARAM.format(param='userID'))
 
     res = querySQL(stmt='''
         SELECT userID FROM users
@@ -530,7 +538,7 @@ def validateVehIdInURL(vehID):
     try:
         vehID = int(vehID)
     except ValueError:
-        raise ValueError('vehicleID parameter not valid.')
+        raise ValueError(INVALIDPARAM.format(param='vehID'))
 
     res = querySQL(stmt='''
         SELECT vehicleID FROM vehicles
@@ -545,15 +553,14 @@ def validateItemIdInURL(itemID: int):
     try:
         itemID = int(itemID)
     except ValueError:
-        raise ValueError(INVALIDID.formt())
+        raise ValueError(INVALIDPARAM.formt())
 
     res = querySQL(stmt='''
         SELECT itemID FROM serviceSchedule
         WHERE itemID = %s
     ''', val=(itemID, ))
     if res == []:
-        raise NotInDatabaseError(
-            f'service item with ID {itemID} is not in the database.')
+        raise NotInDatabaseError(NOTINDB.format(type='service item', id=itemID))
     
     return itemID
 
@@ -575,7 +582,7 @@ def handleNewVehiclePOST(userID):
     try:
         nick = request.form['nickname']
     except KeyError:
-        raise KeyError('required field missing from request')
+        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='nickname'))
         # if the nickname is None, the request will not contain
         # a nickname key at all, so it will throw a 
         # keyError
@@ -587,9 +594,9 @@ def handleNewVehiclePOST(userID):
     try:
         year = request.form['year']
     except KeyError:
-        raise KeyError('required field missing from request')
+        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='year'))
     if year == '' or not year:
-        raise FormInputError('year is blank')
+        raise FormInputError(FORMFIELDBLANK.format(field='year'))
 
     # try casting the input into a SQL year datatype
     if year == '1':
@@ -598,23 +605,23 @@ def handleNewVehiclePOST(userID):
         SELECT CAST(%s AS YEAR)
     ''', val=(year, ))
     if not res[0][0]:
-        raise FormInputError('not a valid year')
+        raise FormInputError(INVALIDPARAM.format(param='year'))
 
     # make
     try:
         make = request.form['make']
     except KeyError:
-        raise KeyError('required field missing from request')
+        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='make'))
     if make == '':
-        raise FormInputError("make can't be blank")
+        raise FormInputError(FORMFIELDBLANK.format(field='make'))
 
     # model
     try:
         model = request.form['model']
     except KeyError:
-        raise KeyError('required field missing from request')
+        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='model'))
     if model == '':
-        raise FormInputError("model can't be blanke")
+        raise FormInputError(FORMFIELDBLANK.format(field='model'))
 
     result = querySQL(stmt='''
         INSERT INTO vehicles
@@ -635,13 +642,20 @@ def handleNewVehiclePOST(userID):
     try:
         miles = request.form['miles']
     except KeyError:
-        raise KeyError(FORMFIELDMISSING)
+        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='miles'))
     
     if len(miles) > 0:
         try:
             updateODO(vehID=newVehID, newODO=miles)
         except TypeError:
-            raise FormInputError('miles ' + NOTANUMBER)
+            raise FormInputError(NOTANUMBER.format(what='miles'))
+        except ValueError as e:
+            if ODOBELOWZERO in str(e):
+                raise FormInputError(ODOBELOWZERO)
+            else:
+                # if value error is being raised for any other reason,
+                # that's an uncaught exception and 400.
+                raise Exception(UNCAUGHTEXCEPTION)
         except Exception as e:
             raise e
 
@@ -664,16 +678,22 @@ def handleNewServicePOST(vehicleID: int):
 
     # description
     # check that it is present
-    description = request.form['description']
-    if description == '' or not description:
-        raise FormInputError('missing required parameter "description" in request')
+    try:
+        description = request.form['description']
+    except KeyError:
+        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='description'))
+    if description == '':
+        raise FormInputError(FORMFIELDBLANK.format(field='description'))
 
     # interval
     # check that its present.
     # try casting into the data type for the column in the DB
-    interval = request.form['interval']
-    if interval == '' or not interval:
-        raise FormInputError('missing required parameter "interval" in request')
+    try:
+        interval = request.form['interval']
+    except KeyError:
+        raise KeyError(PARAMNOTFOUNDINREQUEST.format(field='interval'))
+    if interval == '':
+        raise FormInputError(FORMFIELDBLANK.format(field='interval'))
 
     # try casting the input into a float
     try:
@@ -681,7 +701,7 @@ def handleNewServicePOST(vehicleID: int):
         if interval <= 0:
             raise ValueError()
     except ValueError:
-        raise FormInputError('interval not a valid number.')
+        raise FormInputError(NOTANUMBER.format(what='interval'))
     
     # check that miles last done is a valid (positive) number
     milesLastDone = request.form['milesLastDone']
@@ -690,9 +710,9 @@ def handleNewServicePOST(vehicleID: int):
         try:
             milesLastDone = float(milesLastDone)
             if milesLastDone < 0:
-                raise FormInputError('Miles Last Done cannot be less than zero')
+                raise FormInputError(BELOWZERO.format(what='milesLastDone'))
         except ValueError: 
-            raise FormInputError('Miles Last Done not a valid number.')
+            raise FormInputError(NOTANUMBER.format(what='Miles Last Done'))
     else:
         milesLastDone = 0
 
@@ -706,7 +726,7 @@ def handleNewServicePOST(vehicleID: int):
 
     # if there is more than an empty array in the result,
     if result != []:
-        raise DuplicateItemError('An item with this description already exists for this vehicle.')
+        raise DuplicateItemError(ILLEGALDUPLICATESERVICE(desc=description))
     
     result = querySQL(stmt='''
         SELECT userID FROM vehicles
@@ -732,19 +752,21 @@ def handleUpdateOdoPOST(vehicleID: int):
     except Exception as e:
         raise e
     
-    miles = request.form['miles']
+    try:
+        miles = request.form['miles']
+    except KeyError:
+        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='miles'))
 
-    # check that miles is there.
-    if not miles or miles == '':
-        raise FormInputError('missing required field Odometer Reading.')
+    if miles == '':
+        raise FormInputError(FORMFIELDBLANK.format(field='miles'))
     
     # updateODO does the rest of the input checking.
     try:
         updateODO(vehID=vehicleID, newODO=miles)
     except ValueError:
-        raise FormInputError('Odometer reading cannot be less than the last recorded odometer reading for the vehicle.')
+        raise FormInputError(ODODECREASING)
     except TypeError:
-        raise FormInputError('Odometer reading not a valid number')
+        raise FormInputError(ODONOTANUMBER)
     except Exception() as e:
         breakpoint()
         raise e
@@ -761,11 +783,13 @@ def handleUpdateServDonePOST(itemID: int):
     except Exception as e:
         raise e
     
-    miles = request.form['miles']
-
+    try:
+        miles = request.form['miles']
+    except KeyError:
+        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='miles'))
     # check that miles is there.
-    if not miles or miles == '':
-        raise FormInputError('missing required field Odometer Reading.')
+    if miles == '':
+        raise FormInputError(FORMFIELDBLANK.format(field='miles'))
     
     # updateServiceDone with error checking
     try:
@@ -773,9 +797,8 @@ def handleUpdateServDonePOST(itemID: int):
     except ValueError as e:
         raise FormInputError(f'{e}')
     except TypeError:
-        raise FormInputError('Odometer reading not a number')
+        raise FormInputError(ODONOTANUMBER)
     except Exception() as e:
-        breakpoint()
         raise e
     
     return miles

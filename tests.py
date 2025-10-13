@@ -562,10 +562,11 @@ def test_receiveOdoMsg(client, mocker):
             f"\nreceiveOdoMsg From '{fromPhone}' Message reads: '{smsBody}'. Expected message: ")
         # set up our fake http POST request.
         # no need for setting the content type since flask sets this when
-        # you set the data param of .post
+        # you set the data param of .post()
         # therefore, there is no need to include headers since
         # since I am not checking any in this version of receiveOdoMsg
-        route = '/receive_sms'
+        with main.app.test_request_context():
+            route = url_for('receiveOdoMsg')   
         data = {
             'From': fromPhone,
             'Body': smsBody
@@ -596,71 +597,72 @@ def test_receiveOdoMsg(client, mocker):
         assert msgElem is not None
 
         responseStr = msgElem.text
+        return responseStr
         
-        maxODO = getMaxTheoValueDecimal("vehicles", "miles")
-
-        # these checks should cascade because these conditions shouldnt overlap
-        # (ie no user in db and no matching veh)
-        # these if/else statements basically paraphrase the message so I can easily hardcode
-        # in a more readable way outside. Then a paraphrased message is returned.
-        if "your phone number is not associated with Service Reminders." in responseStr:
-            print("no user in DB")
-            return "no user in DB"
-        elif "none of your vehicles need an odometer update." in responseStr:
-            print("no eligible vehicle")
-            return "no eligible vehicle"
-        elif "message is not a number" in responseStr:
-            print("not a number")
-            return "not a number"
-        elif "can't be negative." in responseStr:
-            print("negative")
-            return "negative"
-        elif f"number can't be more than {maxODO}" in responseStr:
-            print("too large")
-            return "too large"
-        elif "must be more than your vehicle's last recorded miles." in responseStr:
-            print("less than recorded miles")
-            return "less than recorded miles"
-        elif "Successfully updated the odometer" in responseStr:
-            print("no input errors")
-            return "no input errors"
-        else:
-            print("UNCAUGHT INPUT ERROR")
-            return "UNCAUGHT INPUT ERROR"
+        maxODO = getMaxTheoValueDecimal('vehicles', 'miles')
+    
+        # # these checks should cascade because these conditions shouldnt overlap
+        # # (ie no user in db and no matching veh)
+        # # these if/else statements basically paraphrase the message so I can easily hardcode
+        # # in a more readable way outside. Then a paraphrased message is returned.
+        # if main.PHONENOTINDBSMS in responseStr:
+        #     print(main.PHONENOTINDBSMS)
+        #     return main.PHONENOTINDBSMS
+        # elif main.NOELIGIBLEVEHICLESMS in responseStr:
+        #     print(main.NOELIGIBLEVEHICLESMS)
+        #     return main.NOELIGIBLEVEHICLESMS
+        # elif main.NOTANUMBER.format(what='response') in responseStr:
+        #     print(main.NOTANUMBER.format(what='response'))
+        #     return main.NOTANUMBER.format(what='response')
+        # elif "can't be negative." in responseStr:
+        #     print("negative")
+        #     return "negative"
+        # elif f"number can't be more than {maxODO}" in responseStr:
+        #     print("too large")
+        #     return "too large"
+        # elif "must be more than your vehicle's last recorded miles." in responseStr:
+        #     print("less than recorded miles")
+        #     return "less than recorded miles"
+        # elif "Successfully updated the odometer" in responseStr:
+        #     print("no input errors")
+        #     return "no input errors"
+        # else:
+        #     print("UNCAUGHT INPUT ERROR")
+        #     return "UNCAUGHT INPUT ERROR"
 
     # bad user inputs
-    assert "no user in DB" == runTest(
+    assert main.PHONENOTINDBSMS in runTest(
         fromPhone='+114142; drop table users', smsBody='adsfasdf')
 
-    assert "no eligible vehicle" == runTest(
+    assert main.NOELIGIBLEVEHICLESMS in runTest(
         fromPhone='+18777804236', smsBody='1234')
-    assert "not a number" == runTest(
+    assert main.ODONOTANUMBER in runTest(
         fromPhone='+16469576453', smsBody='asdf')
-    assert "negative" == runTest(
+    assert main.ODOBELOWZERO in runTest(
         fromPhone='+16469576453', smsBody='-0110')
-    assert "too large" == runTest(
+    assert main.ABOVEMAX.format(max='') in runTest(
         fromPhone='+16469576453', smsBody='11923481932489132498')
-    assert "less than recorded miles" == runTest(
+    assert main.ODODECREASING in runTest(
         fromPhone='+16469576453', smsBody='1')
-    assert "not a number" == runTest(
+    assert main.ODONOTANUMBER in runTest(
         fromPhone='+19178487133', smsBody='hello')
-    assert "not a number" == runTest(
+    assert main.ODONOTANUMBER in runTest(
         fromPhone='+19178487133', smsBody='123; drop table users')
-    assert "negative" == runTest(
+    assert main.ODOBELOWZERO in runTest(
         fromPhone='+19178487133', smsBody='-100')
-    assert "too large" == runTest(
+    assert main.ABOVEMAX.format(max='') in runTest(
         fromPhone='+19178487133', smsBody='1293128938931289')
-    assert "less than recorded miles" == runTest(
+    assert main.ODODECREASING in runTest(
         fromPhone='+19178487133', smsBody='9')
 
     # good inputs "today" is 9/15/2025
-    assert "no input errors" == runTest(
+    assert main.SUCCESSFULODOUPDATESMS in runTest(
         fromPhone="+18006969008", smsBody="300.25")
-    assert "no input errors" == runTest(
+    assert main.SUCCESSFULODOUPDATESMS in runTest(
         fromPhone="+17974087089", smsBody="2.6")
-    assert "no input errors" == runTest(
+    assert main.SUCCESSFULODOUPDATESMS in runTest(
         fromPhone="+19177978174", smsBody="5")
-    assert "no input errors" == runTest(
+    assert main.SUCCESSFULODOUPDATESMS in runTest(
         fromPhone="+100", smsBody="6")
 
 
@@ -799,11 +801,11 @@ def test_newUserUIPOST(client, mocker):
         return msg
 
     # asserting a username that already exists
-    assert 'username is already in use' in runTest(
+    assert main.ILLEGALDUPLICATE.format(param='username') in runTest(
         usr='ryanhess', phone='1414144444')
 
     # asserting a phone number that already exists
-    assert 'phone number is already in use' in runTest(
+    assert main.ILLEGALDUPLICATE.format(param='phone') in runTest(
         usr='thepinkpanther', phone='+18777804236'
     )
 
@@ -922,19 +924,19 @@ def test_newVehicleUIPOST(client, mocker):
                                             'miles': None})
 
     # assert input errors.
-    assert 'year is blank' in \
+    assert main.FORMFIELDBLANK.format(field='year') in \
         runTest(userID=3, vehicle={'nickname': 'hello',                           
                                     'year': '',
                                     'make': 'lex',
                                     'model': 'blah',
                                     'miles': 20})
-    assert 'not a valid year' in \
+    assert main.INVALIDPARAM.format(param='year') in \
         runTest(userID=1, vehicle={'nickname': 'hello',                           
                                     'year': '-5',
                                     'make': 'lex',
                                     'model': 'blah',
                                     'miles': ''})
-    assert 'not a valid year' in \
+    assert main.INVALIDPARAM.format(param='year') in \
         runTest(userID=1, vehicle={'nickname': 'hello',                           
                                     'year': 'not a year',
                                     'make': 'lex',
@@ -946,31 +948,44 @@ def test_newVehicleUIPOST(client, mocker):
                                     'make': 'lex',
                                     'model': 'blah',
                                     'miles': ''})
-    assert "make can't be blank" in \
+    assert main.FORMFIELDBLANK.format(field='make') in \
         runTest(userID=1, vehicle={'nickname': 'hello',                           
                                     'year': '2000',
                                     'make': '',
                                     'model': 'blah',
                                     'miles': ''})
     
-    assert "model can't be blank" in \
+    assert main.FORMFIELDBLANK.format(field='model') in \
         runTest(userID=1, vehicle={'nickname': 'hello',                           
                                     'year': '2000',
                                     'make': 'make',
                                     'model': '',
                                     'miles': ''})
-    assert "miles is not a number" in \
+    assert main.NOTANUMBER.format(what='miles') in \
         runTest(userID=1, vehicle={'nickname': 'hello',                           
                                     'year': '2000',
                                     'make': 'make',
                                     'model': 'blah',
                                     'miles': 'word'})
-    assert not \
+    assert main.ODOBELOWZERO in \
         runTest(userID=1, vehicle={'nickname': 'hello',                           
                                     'year': '2000',
                                     'make': 'make',
                                     'model': 'blah',
                                     'miles': '-1'})
+    
+    #should be good inputs
+    assert not runTest(userID=1, vehicle={'nickname': '',                           
+                                    'year': '2000',
+                                    'make': 'make',
+                                    'model': 'blah',
+                                    'miles': ''})
+    assert not runTest(userID=1, vehicle={'nickname': 'nickname',                           
+                                    'year': '2000',
+                                    'make': 'make',
+                                    'model': 'blah',
+                                    'miles': '1000'})
+    
 
 # empty
 def test_UpdateODOUIPOST(client, mocker):
