@@ -763,12 +763,13 @@ def handleUpdateOdoPOST(vehicleID: int):
     # updateODO does the rest of the input checking.
     try:
         updateODO(vehID=vehicleID, newODO=miles)
-    except ValueError:
-        raise FormInputError(ODODECREASING)
+    except ValueError as v:
+        if ODODECREASING in str(v):
+            raise FormInputError(ODODECREASING)
+        
     except TypeError:
         raise FormInputError(ODONOTANUMBER)
     except Exception() as e:
-        breakpoint()
         raise e
     
     return miles

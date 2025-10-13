@@ -985,10 +985,72 @@ def test_newVehicleUIPOST(client, mocker):
                                     'make': 'make',
                                     'model': 'blah',
                                     'miles': '1000'})
+    assert not runTest(userID=1, vehicle={'nickname': '123',                           
+                                    'year': '2',
+                                    'make': '1',
+                                    'model': 'blah',
+                                    'miles': '0.1'})
+    assert not runTest(userID=1, vehicle={'nickname': 'my car is cool',                           
+                                    'year': '2',
+                                    'make': '1',
+                                    'model': 'blah',
+                                    'miles': '0.1'})
+    assert not runTest(userID=1, vehicle={'nickname': 'my car is cool',                           
+                                    'year': '2',
+                                    'make': '1',
+                                    'model': 'blah',
+                                    'miles': '0.00001'})
     
 
 # empty
 def test_UpdateODOUIPOST(client, mocker):
+    def mock_render_template(unusedTemplateFile="",
+            user={'id': None, 'username': None},
+            vehicle={'id': None, 'displayName': None, 'miles': None},
+            errorMessage=""):
+        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
+        spiedVehID = vehicle['id']
+        spiedDispName = vehicle['displayName']
+        spiedMiles = vehicle['miles']
+        spiedErrMsg = errorMessage
+
+        return Response(status=200)
+    def runTest(userID, vehicle):
+        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
+        with main.app.test_request_context():
+            route = url_for('newVehicleUI', userID=userID)   
+
+        beforeVehIDs = set()
+        res = main.querySQL(stmt='''
+            SELECT vehicleID FROM vehicles
+        ''')
+        for result in res:
+            beforeVehIDs.add(result[0])
+
+        response = client.post(path=route, data=vehicle)
+
+        # we need to be able to detect that specifically:
+        # the function fails to return a 200 code. This is
+        # by changing the returned message to indicate the
+        # response code if not 200.
+        if response.status_code != 200:
+            return response.status_code
+
+        if spiedErrMsg:
+            msg = spiedErrMsg
+        else:
+            nick = vehicle['nickname']
+            calcDispName = nick if nick and len(nick) > 0 \
+                else vehicle['year'] + ' ' + vehicle['make'] + \
+                ' ' + vehicle['model']
+            assert calcDispName == spiedDispName
+            assert vehicle['miles'] == spiedMiles
+            assert checkVehCreated(vehID=spiedVehID, oldIDs=beforeVehIDs)
+            msg = 0
+
+        spiedDispName = spiedMiles = spiedErrMsg = None
+
+        return msg
     return
 
 
