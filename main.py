@@ -11,6 +11,22 @@ import traceback
 
 ODOPROMPTINTERVAL = 7  # the number of days to wait before prompting a regular ODO reading
 
+#error messages
+BELOWZERO = 'cannot be negative.'
+ABOVEMAX = 'cannot be more than {max}'
+BELOWMIN = 'cannot be less than {min}'
+NOTANUMBER = "{what} cannot be interpreted as a number"
+DUPLICATEPARAM = 'That {param} is already in use.'
+ODODECREASING = "New odometer can't be less than current odometer"
+FORMFIELDMISSING = 'requred field {fieldName} missing from request'
+NOELIGIBLEVEHICLE = "no eligible vehicle for user {userID}"
+NOTINDB = '{type} {id} not found in DB'
+INVALIDID = 'parameter is not a valid {id}'
+breakpoint()
+#text messages
+SERVICENOTIFICATION = '{username}, {displayName} is due for item: "{desc}" at {dueAt} miles.'
+
+
 app = Flask(__name__)
 
 # function to get today's date in YYYY-mm-dd
@@ -100,7 +116,7 @@ def querySQL(stmt="", val="", many=False):
 
             return result
     except Error as e:
-        breakpoint()
+        # breakpoint()
         raise Exception(e)
 
 
@@ -145,7 +161,7 @@ def getUserUpdateVehicle(userID):
 def promptUserForOneVeh(usrID=0):
     vehID = getUserUpdateVehicle(usrID)
     if vehID is None:
-        raise NotInDatabaseError("no eligible vehicle found for user.")
+        raise NotInDatabaseError(NOELIGIBLEVEHICLE)
 
     queryResult = querySQL(stmt=f'''
             SELECT displayName
@@ -182,7 +198,13 @@ def updateODO(vehID=0, newODO=0):
     try:
         newODO = float(newODO)
     except ValueError as e:
-        raise TypeError('updateODO called with not a number.')
+        raise TypeError(NOTANUMBER)
+        
+    if newODO < curMiles:
+        raise ValueError(ODODECREASING)
+    
+    if newODO < 0:
+        raise ValueError(BELOWZERO)
 
     if newODO is None:
         newODO = 0
@@ -192,12 +214,11 @@ def updateODO(vehID=0, newODO=0):
     """)
 
     if res == []:
-        raise NotInDatabaseError(
-            "vehicle with this ID does not exist in the database.")
+        raise NotInDatabaseError(NOTINDB)
 
     curMiles, curOdoDate, curMilesPerDay = res[0]
 
-    # In updateODO we want to detect if odo is None. We need to make a sepcial case.
+    # In updateODO we want to detect if current odo is None. We need to make a sepcial case.
     # and take a sepcial default action that doesn't blow up the mileage estimates.
     # In that case, let miles per day be 0 to prevent unneccesary service reminders
     # until there is a regular cadence of updates.
@@ -209,10 +230,6 @@ def updateODO(vehID=0, newODO=0):
         curMiles = 0
         curOdoDate = today
         curMilesPerDay = 0
-
-    elif curMiles > newODO:
-        raise ValueError(
-            "cannot update the mileage with a lesser number than the current value")
 
     # we have to account for if the odo is updated again on the same day.
     try:
@@ -245,8 +262,7 @@ def updateServiceDone(itemID: int, itemODO: float):
         WHERE itemID = %s
     ''', val=(itemID, ))
     if res == []:
-        raise NotInDatabaseError(
-            f"serviceSchedule record for itemID = {itemID} does not exist.")
+        raise NotInDatabaseError(NOTINDB)
     interval, lastMiles = res[0]
 
     res = querySQL(f"""
@@ -259,14 +275,14 @@ def updateServiceDone(itemID: int, itemODO: float):
     try:
         itemODO = float(itemODO)
     except ValueError:
-        raise TypeError('could not cast itemODO to float.')
+        raise TypeError(NOTANUMBER)
     
     if itemODO < 0:
-        raise ValueError("can't be less than 0.")
+        raise ValueError(BELOWZERO)
     elif itemODO > (getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles') - float(interval)):
-        raise ValueError(f"can't be greater than {getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles') - interval} miles")
+        raise ValueError(ABOVEMAX + str(getMaxTheoValueDecimal(tableName='serviceSchedule', columnName='dueAtMiles') - interval) + ' miles')
     elif itemODO < lastMiles:
-        raise ValueError(f"can't be less than {lastMiles}, when this service was last done.")
+        raise ValueError(ODODECREASING + lastMiles + 'miles, when this service was last done.')
 
     # update the miles of the parent vehicle, only if the new ODO is greater than the previous ODO.
     # dont need exceptions to percolate up from here for miles being below parent miles.
@@ -291,8 +307,7 @@ def notifyOneService(serviceItemID):
         WHERE itemID = {serviceItemID}
     """)
     if res == []:
-        raise NotInDatabaseError(
-            f"Service item {serviceItemID} was not found in the database.")
+        raise NotInDatabaseError(NOTINDB.format(serviceItemID))
     usrID, vehID, desc, dueAt = res[0]
 
     res = querySQL(stmt=f"""
@@ -308,10 +323,8 @@ def notifyOneService(serviceItemID):
 
     displayName = res[0][0]
 
-    msg = f"""
-        {username}, {displayName}
-        is due for item: "{desc}" at {dueAt} miles.
-    """
+    msg = SERVICENOTIFICATION.format(username=username, 
+        displayName=displayName, desc=desc, dueAt=dueAt)
 
     return phone, msg
 
@@ -404,7 +417,7 @@ def receiveOdoMsg():
             WHERE phone = %s
         """, val=(phone,))
         if res == []:
-            raise NotInDatabaseError(f"{phone} not in DB")
+            raise NotInDatabaseError(NOTINDB.format(user=phone))
 
         userID = res[0][0]
 
@@ -424,17 +437,17 @@ def receiveOdoMsg():
         if not vehID:
             errStr = "none of your vehicles need an odometer update."
         elif not strIsFloat(odo):
-            errStr = "message is not a number"
+            errStr = NOTANUMBER.format(odo)
         elif float(odo) < 0:
-            errStr = "can't be negative."
+            errStr = BELOWZERO
         elif float(odo) > maxODO:
-            errStr = f"number can't be more than {maxODO}"
+            errStr = ABOVEMAX.format(max=maxODO)
         else:
             # lastly, try to update vehicle's ODO and check for a valueerror
             try:
                 updateODO(vehID=vehID, newODO=odo)
             except ValueError:
-                errStr = "must be more than your vehicle's last recorded miles."
+                errStr = ODODECREASING
             else:
                 errStr = None
 
@@ -471,14 +484,14 @@ def handleNewUserPOST():
         WHERE username = %s
     ''', val=(username,))
     if res != []:
-        raise DuplicateItemError('That username is already in use.')
+        raise DuplicateItemError(DUPLICATEPARAM.format(param=username))
 
     res = querySQL('''
         SELECT userID FROM users
         WHERE phone = %s
     ''', val=(phone,))
     if res != []:
-        raise DuplicateItemError('That phone number is already in use')
+        raise DuplicateItemError(DUPLICATEPARAM.format(param=phone))
 
     # finally, with the cleaned and validated data, add it to the database and return the cleaned data.
     try:
@@ -499,15 +512,14 @@ def validateUserIdInURL(userID):
     try:
         userID = int(userID)
     except ValueError:
-        raise ValueError('userID parameter not a valid userID.')
+        raise ValueError(INVALIDID.format('userID'))
 
     res = querySQL(stmt='''
         SELECT userID FROM users
         WHERE userID = %s
     ''', val=(userID,))
     if res == []:
-        raise NotInDatabaseError(
-            f'user with ID {userID} is not in the database.')
+        raise NotInDatabaseError(NOTINDB.format(user=userID))
 
     return userID
 
@@ -525,8 +537,7 @@ def validateVehIdInURL(vehID):
         WHERE vehicleID = %s
     ''', val=(vehID,))
     if res == []:
-        raise NotInDatabaseError(
-            f'vehicle with ID {vehID} is not in the database.')
+        raise NotInDatabaseError(NOTINDB.format(type='vehicle', id=vehID))
 
     return vehID
 
@@ -534,7 +545,7 @@ def validateItemIdInURL(itemID: int):
     try:
         itemID = int(itemID)
     except ValueError:
-        raise ValueError('vehicleID parameter not valid.')
+        raise ValueError(INVALIDID.formt())
 
     res = querySQL(stmt='''
         SELECT itemID FROM serviceSchedule
@@ -581,6 +592,8 @@ def handleNewVehiclePOST(userID):
         raise FormInputError('year is blank')
 
     # try casting the input into a SQL year datatype
+    if year == '1':
+        breakpoint()
     res = querySQL('''
         SELECT CAST(%s AS YEAR)
     ''', val=(year, ))
@@ -593,7 +606,7 @@ def handleNewVehiclePOST(userID):
     except KeyError:
         raise KeyError('required field missing from request')
     if make == '':
-        raise FormInputError('Missing a make for the vehicle.')
+        raise FormInputError("make can't be blank")
 
     # model
     try:
@@ -601,7 +614,7 @@ def handleNewVehiclePOST(userID):
     except KeyError:
         raise KeyError('required field missing from request')
     if model == '':
-        raise FormInputError('Missing a model for the vehicle.')
+        raise FormInputError("model can't be blanke")
 
     result = querySQL(stmt='''
         INSERT INTO vehicles
@@ -622,25 +635,17 @@ def handleNewVehiclePOST(userID):
     try:
         miles = request.form['miles']
     except KeyError:
-        raise KeyError('required field missing from request')
+        raise KeyError(FORMFIELDMISSING)
     
     if len(miles) > 0:
         try:
             updateODO(vehID=newVehID, newODO=miles)
         except TypeError:
-            raise FormInputError('miles is not a number.')
+            raise FormInputError('miles ' + NOTANUMBER)
         except Exception as e:
             raise e
 
     # for now dont check for duplicate vehicles.
-
-    # lastly get the username for the id so it can show
-    # up in the confirmation.
-    res = querySQL('''
-        SELECT username FROM users
-        WHERE userID = %s
-    ''', val=(userID, ))
-    username = res[0][0]
 
     return {'id': newVehID, 'displayName': dispName, 'miles': miles}
 

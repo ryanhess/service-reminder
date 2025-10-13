@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest_mock
 from datetime import date, timedelta
 from twilio.twiml.messaging_response import MessagingResponse
-from contextlib import nullcontext as does_not_raise
+from contextlib import contextmanager, nullcontext as does_not_raise
 # import flask
 from flask import Response, url_for
 import xml.etree.ElementTree as ET  # for parsing responses from routes.
@@ -814,13 +814,14 @@ def test_newUserUIPOST(client, mocker):
 
 # empty
 def test_newVehicleUIPOST(client, mocker):
-    spiedDispName = spiedMiles = spiedErrMsg = None
+    spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
 
     def mock_render_template(unusedTemplateFile="",
             user={'id': None, 'username': None},
             vehicle={'id': None, 'displayName': None, 'miles': None},
             errorMessage=""):
-        nonlocal spiedDispName, spiedMiles, spiedErrMsg
+        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
+        spiedVehID = vehicle['id']
         spiedDispName = vehicle['displayName']
         spiedMiles = vehicle['miles']
         spiedErrMsg = errorMessage
@@ -830,32 +831,44 @@ def test_newVehicleUIPOST(client, mocker):
     renderMock = mocker.patch('main.render_template')
     renderMock.side_effect = mock_render_template
 
-    # check that the vehicle display name is in the database
-    # with the mileage given
-    def checkVehInDB(dispName, miles):
-        res = main.querySQL(stmt='''
-            SELECT vehicleID From vehicles
-            WHERE username = %s
-        ''', val=(dispName,))
-
-        if res == []:
+    # check that the vehicle ID is NOT in a set of old ids
+    # (it is original)
+    # and that it is NOW in the database.
+    # use a context manager to control the state of this. 
+    def checkVehCreated(vehID, oldIDs):
+        try:
+            vehID = int(vehID)
+        except ValueError:
             return False
-        else:
-            vehID = res[0][0]
+
+        if vehID not in oldIDs:
             res = main.querySQL(stmt='''
-                SELECT miles FROM vehicles
+                SELECT vehicleID From vehicles
                 WHERE vehicleID = %s
-            ''', val=(vehID, ))
-            return float(res[0][0]) == float(miles)
+            ''', val=(vehID,))
+
+            if res == []:
+                return False
+            else: 
+                return True
+        else:
+            return False
 
     # runs some tests inside and returns the error message that would be
     # displayed so inputs can be asserted outside.
     # if no error, returns 0 so that "assert not runTest()" is asserting that
     # the function runs with no errors.
     def runTest(userID, vehicle):
-        nonlocal spiedDispName, spiedMiles, spiedErrMsg
+        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
         with main.app.test_request_context():
             route = url_for('newVehicleUI', userID=userID)   
+
+        beforeVehIDs = set()
+        res = main.querySQL(stmt='''
+            SELECT vehicleID FROM vehicles
+        ''')
+        for result in res:
+            beforeVehIDs.add(result[0])
 
         response = client.post(path=route, data=vehicle)
 
@@ -871,29 +884,26 @@ def test_newVehicleUIPOST(client, mocker):
         else:
             nick = vehicle['nickname']
             calcDispName = nick if nick and len(nick) > 0 \
-                else vehicle['year'] + ' ' + vehicle['make'] \
-                + vehicle['model']
+                else vehicle['year'] + ' ' + vehicle['make'] + \
+                ' ' + vehicle['model']
             assert calcDispName == spiedDispName
             assert vehicle['miles'] == spiedMiles
-            assert checkVehInDB(calcDispName, vehicle['miles'])
+            assert checkVehCreated(vehID=spiedVehID, oldIDs=beforeVehIDs)
             msg = 0
 
         spiedDispName = spiedMiles = spiedErrMsg = None
 
         return msg
     
-    # these are edge cases that SHOULD be caught somewhere and
-    # throw 400
-    assert 400 == runTest(userID=2, vehicle={'nickname': 'hello; drop table users',
+    # sql injection should be harmlessly treated as any other string
+    assert 0 == runTest(userID=2, vehicle={'nickname': 'hello; drop table users;',
                                             'year': '2000',
                                             'make': 'lex',
-                                            'model': 'blah; drop table users',
-                                            'miles': None})
-    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
-                                            'year': '2000',
-                                            'make': 'lex',
-                                            'model': 'blah; drop table users',
-                                            'miles': None})
+                                            'model': 'blah; drop table users;',
+                                            'miles': ''})
+    
+    # incomplete form requests should return a 400.
+    # also, in Flask a None value is equivalent to a missing key.
     assert 400 == runTest(userID=1, vehicle={})
     assert 400 == runTest(userID=3, vehicle={'nickname': 'hello'})
     assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
@@ -905,42 +915,62 @@ def test_newVehicleUIPOST(client, mocker):
                                             'year': '2000',
                                             'make': 'lex',
                                             'model': 'blah'})
+    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
+                                            'year': '2000',
+                                            'make': 'lex',
+                                            'model': 'blah',
+                                            'miles': None})
 
-    # assert some input errors.
-
+    # assert input errors.
     assert 'year is blank' in \
         runTest(userID=3, vehicle={'nickname': 'hello',                           
                                     'year': '',
                                     'make': 'lex',
                                     'model': 'blah',
                                     'miles': 20})
-
     assert 'not a valid year' in \
         runTest(userID=1, vehicle={'nickname': 'hello',                           
-                                    'year': '1',
+                                    'year': '-5',
                                     'make': 'lex',
                                     'model': 'blah',
                                     'miles': ''})
-    # assert 'valid year' in \
-    #     runTest(userID=1, vehicle={'nickname': 'hello',                           
-    #                                 'year': 'not a year',
-    #                                 'make': 'lex',
-    #                                 'model': 'blah',
-    #                                 'miles': None})
+    assert 'not a valid year' in \
+        runTest(userID=1, vehicle={'nickname': 'hello',                           
+                                    'year': 'not a year',
+                                    'make': 'lex',
+                                    'model': 'blah',
+                                    'miles': ''})    
+    # having no nickname in the request should be OK
+    assert not runTest(userID=3, vehicle={'nickname': '',                           
+                                    'year': '2000',
+                                    'make': 'lex',
+                                    'model': 'blah',
+                                    'miles': ''})
+    assert "make can't be blank" in \
+        runTest(userID=1, vehicle={'nickname': 'hello',                           
+                                    'year': '2000',
+                                    'make': '',
+                                    'model': 'blah',
+                                    'miles': ''})
     
-    # # having no nickname in the request should be OK
-    # assert not runTest(userID=3, vehicle={'nickname': None,                           
-    #                                 'year': '2000',
-    #                                 'make': 'lex',
-    #                                 'model': 'blah',
-    #                                 'miles': None})
-    # assert not runTest(userID=4, vehicle={'nickname': '',                           
-    #                                 'year': '2000',
-    #                                 'make': 'lex',
-    #                                 'model': 'blah',
-    #                                 'miles': None})
-    
-
+    assert "model can't be blank" in \
+        runTest(userID=1, vehicle={'nickname': 'hello',                           
+                                    'year': '2000',
+                                    'make': 'make',
+                                    'model': '',
+                                    'miles': ''})
+    assert "miles is not a number" in \
+        runTest(userID=1, vehicle={'nickname': 'hello',                           
+                                    'year': '2000',
+                                    'make': 'make',
+                                    'model': 'blah',
+                                    'miles': 'word'})
+    assert not \
+        runTest(userID=1, vehicle={'nickname': 'hello',                           
+                                    'year': '2000',
+                                    'make': 'make',
+                                    'model': 'blah',
+                                    'miles': '-1'})
 
 # empty
 def test_UpdateODOUIPOST(client, mocker):
