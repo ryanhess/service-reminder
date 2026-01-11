@@ -1,0 +1,7 @@
+# Local env #
+venv/
+twilio.env
+
+# other #
+mysqlconnectlines.md
+.DS_Store
