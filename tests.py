@@ -3,6 +3,7 @@ import DB_Builder
 from DB_Builder import DBConnection
 from mysql.connector import connect, Error
 from pytest import fixture, raises
+from pytest_mock import MockerFixture
 from decimal import Decimal
 import pytest_mock
 from datetime import date, timedelta
@@ -72,7 +73,7 @@ def test_getDateToday():
 # and its the most out of date vehicle.
 # if the dateLastODO or miles is none, that vehicle jumps to the top
 # return none if there is no eligible vehicle.
-def test_getUserUpdateVehicle(mocker):
+def test_getUserUpdateVehicle(mocker: MockerFixture):
     mocker.patch('main.getDateToday', return_value=getSampleToday())
     buildSampleDB()
 
@@ -106,7 +107,7 @@ def test_getUserUpdateVehicle(mocker):
 
 # no longer need to test that the right vehicle is retrieved, just
 # that the right messages are generated. Once again mock today
-def test_promptUserForOneVeh(mocker):
+def test_promptUserForOneVeh(mocker: MockerFixture):
     mocker.patch('main.getDateToday', return_value=getSampleToday())
     # today = date(2025, 9, 15)
     buildSampleDB()  # rebuild the database with some sample data.
@@ -142,7 +143,7 @@ def test_promptUserForOneVeh(mocker):
 # raises NotInDatabaseError when vehicle is not in the database
 # raises ValueError if the inputted miles are less than the ODO value on record.
 # raises TypeError if the parameter cannot be typed to Float
-def test_updateODO(mocker):
+def test_updateODO(mocker: MockerFixture):
     buildSampleDB()
 
     sampleToday = date(2025, 9, 13)  # artificially set today
@@ -425,7 +426,7 @@ def test_notifyAllService():
 # check that the service schedule has been updated correclty.
 
 
-def test_dailyMaint(mocker):
+def test_dailyMaint(mocker: MockerFixture):
     # a list of users that will be populated by dailyMaint when it calls the (mocked) promptUser function
     promptedUsersIntrospect = []
 
@@ -522,7 +523,7 @@ def test_dailyMaint(mocker):
 # just check the real code against a hard-coded "expected result" that I can easily read off in the test_...() function,
 # using print statements.
 # then if there is a failure I first can check my function calls that I am asserting the right outputs.
-def test_receiveOdoMsg(client, mocker):
+def test_receiveOdoMsg(client, mocker: MockerFixture):
     updatedVehIntrospect = None
 
     def updateOdoMockFunc(vehID, newODO):
@@ -659,7 +660,7 @@ def test_receiveOdoMsg(client, mocker):
 
 
 # test all GET web routes
-def test_webUserRoutes(client):
+def test_webUiGetRoutes(client):
     response = client.get('/')
     assert response.status_code == 200
 
@@ -727,7 +728,7 @@ def test_webUserRoutes(client):
 # check that the user is created.
 # testing input validation is coming soon.
 # test that the new user is in the database and that status code is 200
-def test_newUserUIPOST(client, mocker):
+def test_newUserUIPOST(client, mocker: MockerFixture):
     spiedUser = spiedPhone = spiedErrMsg = None
 
     def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
@@ -778,6 +779,8 @@ def test_newUserUIPOST(client, mocker):
 
         response = client.post(url=route, data=form)
 
+        ###Consider putting the call to a function here--and the objective would be to 
+
         # no matter what the server should respond with a webpage.
         # in this case, I am artificially generating responses
         # but if it gets to rendering the page without errors I think that
@@ -809,7 +812,7 @@ def test_newUserUIPOST(client, mocker):
 
 
 # empty
-def test_newVehicleUIPOST(client, mocker):
+def test_newVehicleUIPOST(client, mocker: MockerFixture):
     spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
 
     def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
@@ -994,7 +997,7 @@ def test_newVehicleUIPOST(client, mocker):
                                     'miles': '0.00001'})
     
 
-def test_UpdateODOUIPOST(client, mocker):
+def test_UpdateODOUIPOST(client, mocker: MockerFixture):
     buildSampleDB()
     spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
 
@@ -1065,7 +1068,7 @@ def test_UpdateODOUIPOST(client, mocker):
     assert 0 == runTest(vehicleID=3, miles='100')
 
 
-def test_newServiceUIPOST(client, mocker):
+def test_newServiceUIPOST(client, mocker: MockerFixture):
     buildSampleDB()
     spiedVehID = spiedDesc = spiedInterval = spiedErrMsg = None
 
@@ -1149,7 +1152,7 @@ def test_newServiceUIPOST(client, mocker):
         vehicleID=1, service={'description': 'New Test Service', 'interval': '5000', 'milesLastDone': '0'})
 
 
-def test_UpdateServiceDoneUIPOST(client, mocker):
+def test_UpdateServiceDoneUIPOST(client, mocker: MockerFixture):
     buildSampleDB()
     spiedItemID = spiedDesc = spiedMilesDoneAt = spiedErrMsg = None
 
