@@ -645,18 +645,11 @@ def handleNewServicePOST(vehicleID: int, description: str, interval: str, milesL
     except Exception as e:
         raise e
 
-    # description
-    # check that it is present
-    if description is None:
-        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='description'))
+    # description - check that it is present
     if description == '':
         raise FormInputError(FORMFIELDBLANK.format(field='description'))
 
-    # interval
-    # check that its present.
-    # try casting into the data type for the column in the DB
-    if interval is None:
-        raise KeyError(PARAMNOTFOUNDINREQUEST.format(field='interval'))
+    # interval - check that it is present and valid
     if interval == '':
         raise FormInputError(FORMFIELDBLANK.format(field='interval'))
 
@@ -716,9 +709,6 @@ def handleUpdateOdoPOST(vehicleID: int, miles: str):
     except Exception as e:
         raise e
 
-    if miles is None:
-        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='miles'))
-
     if miles == '':
         raise FormInputError(FORMFIELDBLANK.format(field='miles'))
 
@@ -745,9 +735,7 @@ def handleUpdateServDonePOST(itemID: int, miles: str):
     except Exception as e:
         raise e
 
-    if miles is None:
-        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='miles'))
-    # check that miles is there.
+    # check that miles is present
     if miles == '':
         raise FormInputError(FORMFIELDBLANK.format(field='miles'))
 
@@ -973,9 +961,9 @@ def newServiceUIGet(request: Request, vehicleID: str):
 def newServiceUIPost(
     request: Request,
     vehicleID: str,
-    description: str = Form(None),
-    interval: str = Form(None),
-    milesLastDone: str = Form(None)
+    description: str = Form(""),
+    interval: str = Form(""),
+    milesLastDone: str = Form("")
 ):
     newServForm = 'new_service_form.html'
     newServConf = 'new_service_submitted.html'
@@ -1015,7 +1003,7 @@ def updateOdoUIGet(request: Request, vehicleID: str):
 
 
 @app.post('/Vehicles/{vehicleID}/Update-Odometer', response_class=HTMLResponse)
-def updateOdoUIPost(request: Request, vehicleID: str, miles: str = Form(...)):
+def updateOdoUIPost(request: Request, vehicleID: str, miles: str = Form("")):
     updateODOForm = 'update_odo_form.html'
     updateODOConf = 'update_odo_confirmation.html'
     try:
@@ -1063,7 +1051,7 @@ def updateServiceDoneUIGet(request: Request, itemID: str):
 
 
 @app.post('/Service/{itemID}/Update-Service-Done', response_class=HTMLResponse)
-def updateServiceDoneUIPost(request: Request, itemID: str, miles: str = Form(...)):
+def updateServiceDoneUIPost(request: Request, itemID: str, miles: str = Form("")):
     servDoneForm = 'service_done_form.html'
     servDoneConf = 'service_done_confirmation.html'
     try:
