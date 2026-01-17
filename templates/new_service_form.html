@@ -7,7 +7,7 @@
 {% if errorMessage %}
 <div style="color:red">Please try again. {{errorMessage}}</div>
 {% endif %}
-<form action="{{ url_for('newServiceUI', vehicleID=vehicleID) }}" method="POST">
+<form action="/Vehicles/{{ vehicleID }}/New-Service" method="POST">
     <label for="description">Item Description</label>
     <input type="text" id="description" name="description" required>
     <br>

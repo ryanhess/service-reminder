@@ -7,7 +7,7 @@
 {% if errorMessage %}
 <div style="color:red">Please try again. {{errorMessage}}</div>
 {% endif %}
-<form action="{{ url_for('updateOdoUI', vehicleID=vehicle['id']) }}" method="POST">
+<form action="/Vehicles/{{ vehicle['id'] }}/Update-Odometer" method="POST">
     <label for="miles">Odometer Reading</label>
     <input type="text" id="miles" name="miles" required>
     <br>

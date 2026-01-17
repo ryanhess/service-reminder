@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>{{ user['name'] }}</h1>
-<p><a href='{{ url_for("newVehicleUI", userID=user["id"]) }}'>Add Vehicle</a></p>
+<p><a href='/Users/{{ user["id"] }}/New-Vehicle'>Add Vehicle</a></p>
 <table>
     <tr>
         <th>Nickname</th>
@@ -23,7 +23,7 @@
         <td>{{ veh['year'] }}</td>
         <td>{{ veh['miles'] }}</td>
         <td>{{ veh['dateLastOdo'] }}</td>
-        <td><a href='{{ url_for("serveSingleVehiclePage", vehicleID=veh["id"]) }}'>Vehicle Info</a></td>
+        <td><a href='/Vehicles/{{ veh["id"] }}'>Vehicle Info</a></td>
     </tr>
     {% endfor %}
 </table>

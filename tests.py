@@ -8,17 +8,14 @@ import pytest_mock
 from datetime import date, timedelta
 from twilio.twiml.messaging_response import MessagingResponse
 from contextlib import contextmanager, nullcontext as does_not_raise
-# import flask
-from flask import Response, url_for
+from fastapi.testclient import TestClient
+from fastapi import Response
 import xml.etree.ElementTree as ET  # for parsing responses from routes.
 
 
 @fixture
 def client():
-    main.app.config.update({"TESTING": True})
-
-    with main.app.test_client() as client:
-        yield client
+    return TestClient(main.app)
 
 
 ### HELPERS ###
@@ -561,12 +558,7 @@ def test_receiveOdoMsg(client, mocker):
         print(
             f"\nreceiveOdoMsg From '{fromPhone}' Message reads: '{smsBody}'. Expected message: ")
         # set up our fake http POST request.
-        # no need for setting the content type since flask sets this when
-        # you set the data param of .post()
-        # therefore, there is no need to include headers since
-        # since I am not checking any in this version of receiveOdoMsg
-        with main.app.test_request_context():
-            route = url_for('receiveOdoMsg')   
+        route = '/receive_sms'
         data = {
             'From': fromPhone,
             'Body': smsBody
@@ -575,7 +567,7 @@ def test_receiveOdoMsg(client, mocker):
         # use null_context as does_not_raise to indicate that we assert
         # this won't raise an exception.
         with does_not_raise():
-            response = client.post(path=route, data=data)
+            response = client.post(url=route, data=data)
 
         # # does receiveOdoMsg return a status code 200?
         assert response.status_code == 200
@@ -733,21 +725,21 @@ def test_webUserRoutes(client):
 
 # simple createUser function
 # check that the user is created.
-# testing input filtering is coming soon.
+# testing input validation is coming soon.
 # test that the new user is in the database and that status code is 200
 def test_newUserUIPOST(client, mocker):
     spiedUser = spiedPhone = spiedErrMsg = None
 
-    def mock_render_template(unusedTemplateFile="", userInfo={'username': None, 'phone': None}, error=False, errorMessage=""):
+    def mockRenderPage(unusedTemplateFile="", userInfo={'username': None, 'phone': None}, error=False, errorMessage=""):
         nonlocal spiedUser, spiedPhone, spiedErrMsg
         spiedUser = userInfo['username']
         spiedPhone = userInfo['phone']
         spiedErrMsg = errorMessage
 
-        return Response(status=200)
+        return Response(status_code=200)
 
-    renderMock = mocker.patch('main.render_template')
-    renderMock.side_effect = mock_render_template
+    renderMock = mocker.patch('main.templates.TemplateResponse')
+    renderMock.side_effect = mockRenderPage
 
     # checks that username is in db and that its phone is 'phone'
     # if either is not true, return false.
@@ -775,18 +767,17 @@ def test_newUserUIPOST(client, mocker):
     # the function runs with no errors.
     def runTest(usr, phone):
         nonlocal spiedUser, spiedPhone, spiedErrMsg
-        with main.app.test_request_context():
-            route = url_for('newUserUI')   
+        route = '/Users/New'
         form = {
             'username': usr,
             'phone': phone
         }
 
-        response = client.post(path=route, data=form)
+        response = client.post(url=route, data=form)
 
         # no matter what the server should respond with a webpage.
         # in this case, I am artificially generating responses
-        # but if it gets to render_template without errors I think that
+        # but if it gets to rendering the page without errors I think that
         # is enough for the test function to test.
         assert response.status_code == 200
 
@@ -818,7 +809,7 @@ def test_newUserUIPOST(client, mocker):
 def test_newVehicleUIPOST(client, mocker):
     spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
 
-    def mock_render_template(unusedTemplateFile="",
+    def mockRenderPage(emptyUnusedTemplateFileName="",
             user={'id': None, 'username': None},
             vehicle={'id': None, 'displayName': None, 'miles': None},
             errorMessage=""):
@@ -828,10 +819,10 @@ def test_newVehicleUIPOST(client, mocker):
         spiedMiles = vehicle['miles']
         spiedErrMsg = errorMessage
 
-        return Response(status=200)
+        return Response(status_code=200)
 
-    renderMock = mocker.patch('main.render_template')
-    renderMock.side_effect = mock_render_template
+    renderMock = mocker.patch('main.templates.TemplateResponse')
+    renderMock.side_effect = mockRenderPage
 
     # check that the vehicle ID is NOT in a set of old ids
     # (it is original)
@@ -862,8 +853,7 @@ def test_newVehicleUIPOST(client, mocker):
     # the function runs with no errors.
     def runTest(userID, vehicle):
         nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
-        with main.app.test_request_context():
-            route = url_for('newVehicleUI', userID=userID)   
+        route = f'/Users/{userID}/New-Vehicle'
 
         beforeVehIDs = set()
         res = main.querySQL(stmt='''
@@ -872,7 +862,7 @@ def test_newVehicleUIPOST(client, mocker):
         for result in res:
             beforeVehIDs.add(result[0])
 
-        response = client.post(path=route, data=vehicle)
+        response = client.post(url=route, data=vehicle)
 
         # we need to be able to detect that specifically:
         # the function fails to return a 200 code. This is
@@ -1004,7 +994,8 @@ def test_newVehicleUIPOST(client, mocker):
 
 # empty
 def test_UpdateODOUIPOST(client, mocker):
-    def mock_render_template(unusedTemplateFile="",
+    spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
+    def mockRenderPage(unusedTemplateFile="",
             user={'id': None, 'username': None},
             vehicle={'id': None, 'displayName': None, 'miles': None},
             errorMessage=""):
@@ -1014,11 +1005,12 @@ def test_UpdateODOUIPOST(client, mocker):
         spiedMiles = vehicle['miles']
         spiedErrMsg = errorMessage
 
-        return Response(status=200)
+        return Response(status_code=200)
+    
     def runTest(userID, vehicle):
         nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
-        with main.app.test_request_context():
-            route = url_for('newVehicleUI', userID=userID)   
+        
+        route = f'/Users/{userID}/New-Vehicle'
 
         beforeVehIDs = set()
         res = main.querySQL(stmt='''
@@ -1027,7 +1019,7 @@ def test_UpdateODOUIPOST(client, mocker):
         for result in res:
             beforeVehIDs.add(result[0])
 
-        response = client.post(path=route, data=vehicle)
+        response = client.post(url=route, data=vehicle)
 
         # we need to be able to detect that specifically:
         # the function fails to return a 200 code. This is

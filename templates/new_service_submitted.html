@@ -8,5 +8,5 @@
 <p>Item Description: {{ newService['description'] }}</p>
 <p>Service Interval: {{ newService['interval'] }}</p>
 <br>
-<p><a href='{{ url_for("serveSingleVehiclePage", vehicleID=vehicleID) }}'> Back to Vehicle Page</a></p>
+<p><a href='/Vehicles/{{ vehicleID }}'> Back to Vehicle Page</a></p>
 {% endblock %}
