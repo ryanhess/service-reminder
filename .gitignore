@@ -3,7 +3,7 @@ venv/
 twilio.env
 
 # Python Caches anywhere in the repo
-/__pycache__/
+__pycache__/
 
 # other #
 mysqlconnectlines.md
