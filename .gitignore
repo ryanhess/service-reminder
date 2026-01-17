@@ -2,6 +2,9 @@
 venv/
 twilio.env
 
+# Python Caches anywhere in the repo
+/__pycache__/
+
 # other #
 mysqlconnectlines.md
 .DS_Store
