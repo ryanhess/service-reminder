@@ -780,7 +780,6 @@ def serveUsersList(request: Request):
     return templates.TemplateResponse(request, "users.html", {"users": users})
 
 
-# handles two functions in one:
 @app.get("/Users/New", response_class=HTMLResponse)
 def newUserUIGet(request: Request):
     newUserForm = 'new_user_form.html'
