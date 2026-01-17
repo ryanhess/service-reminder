@@ -995,63 +995,216 @@ def test_newVehicleUIPOST(client, mocker):
     
 
 def test_UpdateODOUIPOST(client, mocker):
+    buildSampleDB()
     spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
-    def mockRenderPage(unusedTemplateFile="",
-            user={'id': None, 'username': None},
-            vehicle={'id': None, 'displayName': None, 'miles': None},
-            errorMessage=""):
-        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
-        spiedVehID = vehicle['id']
-        spiedDispName = vehicle['displayName']
-        spiedMiles = vehicle['miles']
-        spiedErrMsg = errorMessage
 
+    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
+        # modify the variables defined in the outer scope.
+        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
+        if context is None:
+            context = {}
+        vehicle = context.get('vehicle', {})
+        spiedVehID = vehicle.get('id') if vehicle else None
+        spiedDispName = vehicle.get('displayName') if vehicle else None
+        spiedMiles = vehicle.get('miles') if vehicle else None
+        spiedErrMsg = context.get('errorMessage', "")
         return Response(status_code=200)
-    
-    def runTest(userID, vehicle):
-        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
-        
-        route = f'/Users/{userID}/New-Vehicle'
 
-        beforeVehIDs = set()
+    renderMock = mocker.patch('main.templates.TemplateResponse')
+    renderMock.side_effect = mockRenderPage
+
+    def getVehicleMiles(vehicleID):
         res = main.querySQL(stmt='''
-            SELECT vehicleID FROM vehicles
-        ''')
-        for result in res:
-            beforeVehIDs.add(result[0])
+            SELECT miles FROM vehicles WHERE vehicleID = %s
+        ''', val=(vehicleID,))
+        return float(res[0][0]) if res and res[0][0] else None
 
-        response = client.post(url=route, data=vehicle)
+    def runTest(vehicleID, miles):
+        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
+        route = f'/Vehicles/{vehicleID}/Update-Odometer'
 
-        # we need to be able to detect that specifically:
-        # the function fails to return a 200 code. This is
-        # by changing the returned message to indicate the
-        # response code if not 200.
+        response = client.post(url=route, data={'miles': miles})
+
         if response.status_code != 200:
             return response.status_code
 
         if spiedErrMsg:
             msg = spiedErrMsg
         else:
-            nick = vehicle['nickname']
-            calcDispName = nick if nick and len(nick) > 0 \
-                else vehicle['year'] + ' ' + vehicle['make'] + \
-                ' ' + vehicle['model']
-            assert calcDispName == spiedDispName
-            assert vehicle['miles'] == spiedMiles
-            assert checkVehCreated(vehID=spiedVehID, oldIDs=beforeVehIDs)
+            # Verify the odometer was actually updated in DB
+            dbMiles = getVehicleMiles(vehicleID)
+            assert dbMiles == round(float(miles), 1)
             msg = 0
 
-        spiedDispName = spiedMiles = spiedErrMsg = None
-
+        spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
         return msg
-    return
+
+    # Invalid vehicle ID should return 404
+    assert 404 == runTest(vehicleID=0, miles='50000')
+    assert 404 == runTest(vehicleID=99999, miles='50000')
+    assert 404 == runTest(vehicleID='blah', miles='50000')
+
+    # Blank miles should show error
+    assert main.FORMFIELDBLANK.format(field='miles') in runTest(vehicleID=1, miles='')
+
+    # Non-numeric miles should show error
+    assert main.ODONOTANUMBER in runTest(vehicleID=1, miles='notanumber')
+    assert main.ODONOTANUMBER in runTest(vehicleID=1, miles='123abc')
+
+    # Decreasing odometer should show error (vehicle 1 has 110000 miles)
+    assert main.ODODECREASING in runTest(vehicleID=1, miles='50000')
+    assert main.ODODECREASING in runTest(vehicleID=1, miles='0')
+
+    # Good inputs should succeed
+    # Vehicle 1 has 110000 miles, so we need to go higher
+    assert 0 == runTest(vehicleID=1, miles='115000')
+    # Now it's at 115000, go higher again
+    assert 0 == runTest(vehicleID=1, miles='115500.5')
+
+    # Vehicle 3 has only 10 miles
+    assert 0 == runTest(vehicleID=3, miles='100')
 
 
-# empty
 def test_newServiceUIPOST(client, mocker):
-    return
+    buildSampleDB()
+    spiedVehID = spiedDesc = spiedInterval = spiedErrMsg = None
+
+    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
+        nonlocal spiedVehID, spiedDesc, spiedInterval, spiedErrMsg
+        if context is None:
+            context = {}
+        spiedVehID = context.get('vehicleID')
+        newService = context.get('newService', {})
+        spiedDesc = newService.get('description') if newService else None
+        spiedInterval = newService.get('interval') if newService else None
+        spiedErrMsg = context.get('errorMessage', "")
+        return Response(status_code=200)
+
+    renderMock = mocker.patch('main.templates.TemplateResponse')
+    renderMock.side_effect = mockRenderPage
+
+    def checkServiceCreated(vehicleID, description):
+        res = main.querySQL(stmt='''
+            SELECT itemID FROM serviceSchedule
+            WHERE vehicleID = %s AND description = %s
+        ''', val=(vehicleID, description))
+        return res != []
+
+    def runTest(vehicleID, service):
+        nonlocal spiedVehID, spiedDesc, spiedInterval, spiedErrMsg
+        route = f'/Vehicles/{vehicleID}/New-Service'
+
+        response = client.post(url=route, data=service)
+
+        if response.status_code != 200:
+            return response.status_code
+
+        if spiedErrMsg:
+            msg = spiedErrMsg
+        else:
+            assert spiedDesc == service.get('description')
+            assert checkServiceCreated(vehicleID, service.get('description'))
+            msg = 0
+
+        spiedVehID = spiedDesc = spiedInterval = spiedErrMsg = None
+        return msg
+
+    # Invalid vehicle ID should return 404
+    assert 404 == runTest(vehicleID=0, service={'description': 'test', 'interval': '5000', 'milesLastDone': '0'})
+    assert 404 == runTest(vehicleID='blah', service={'description': 'test', 'interval': '5000', 'milesLastDone': '0'})
+
+    # Missing/blank description should show error
+    assert main.FORMFIELDBLANK.format(field='description') in runTest(
+        vehicleID=1, service={'description': '', 'interval': '5000', 'milesLastDone': '0'})
+
+    # Missing/blank interval should show error
+    assert main.FORMFIELDBLANK.format(field='interval') in runTest(
+        vehicleID=1, service={'description': 'test service', 'interval': '', 'milesLastDone': '0'})
+
+    # Non-numeric interval should show error
+    assert main.NOTANUMBER.format(what='interval') in runTest(
+        vehicleID=1, service={'description': 'test service', 'interval': 'notanumber', 'milesLastDone': '0'})
+
+    # Zero or negative interval should show error
+    assert main.NOTANUMBER.format(what='interval') in runTest(
+        vehicleID=1, service={'description': 'test service', 'interval': '0', 'milesLastDone': '0'})
+    assert main.NOTANUMBER.format(what='interval') in runTest(
+        vehicleID=1, service={'description': 'test service', 'interval': '-100', 'milesLastDone': '0'})
+
+    # Non-numeric milesLastDone should show error
+    assert main.NOTANUMBER.format(what='Miles Last Done') in runTest(
+        vehicleID=1, service={'description': 'test service', 'interval': '5000', 'milesLastDone': 'notanumber'})
+
+    # Negative milesLastDone should show error
+    assert main.BELOWZERO.format(what='milesLastDone') in runTest(
+        vehicleID=1, service={'description': 'test service', 'interval': '5000', 'milesLastDone': '-100'})
+
+    # Good inputs should succeed
+    assert 0 == runTest(vehicleID=1, service={'description': 'New Test Service', 'interval': '5000', 'milesLastDone': '100000'})
+    assert 0 == runTest(vehicleID=1, service={'description': 'Another Service', 'interval': '10000', 'milesLastDone': ''})
+    assert 0 == runTest(vehicleID=2, service={'description': 'Service for veh 2', 'interval': '3000', 'milesLastDone': '50'})
+
+    # Duplicate description for same vehicle should show error
+    assert main.ILLEGALDUPLICATESERVICE.format(desc='New Test Service') in runTest(
+        vehicleID=1, service={'description': 'New Test Service', 'interval': '5000', 'milesLastDone': '0'})
 
 
-# empty
 def test_UpdateServiceDoneUIPOST(client, mocker):
-    return
+    buildSampleDB()
+    spiedItemID = spiedDesc = spiedMilesDoneAt = spiedErrMsg = None
+
+    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
+        nonlocal spiedItemID, spiedDesc, spiedMilesDoneAt, spiedErrMsg
+        if context is None:
+            context = {}
+        serviceItem = context.get('serviceItem', {})
+        spiedItemID = serviceItem.get('id') if serviceItem else None
+        spiedDesc = serviceItem.get('description') if serviceItem else None
+        spiedMilesDoneAt = serviceItem.get('milesDoneAt') if serviceItem else None
+        spiedErrMsg = context.get('errorMessage', "")
+        return Response(status_code=200)
+
+    renderMock = mocker.patch('main.templates.TemplateResponse')
+    renderMock.side_effect = mockRenderPage
+
+    def getServiceFlag(itemID):
+        res = main.querySQL(stmt='''
+            SELECT servDueFlag FROM serviceSchedule WHERE itemID = %s
+        ''', val=(itemID,))
+        return res[0][0] if res else None
+
+    def runTest(itemID, miles):
+        nonlocal spiedItemID, spiedDesc, spiedMilesDoneAt, spiedErrMsg
+        route = f'/Service/{itemID}/Update-Service-Done'
+
+        response = client.post(url=route, data={'miles': miles})
+
+        if response.status_code != 200:
+            return response.status_code
+
+        if spiedErrMsg:
+            msg = spiedErrMsg
+        else:
+            # Verify the service flag was cleared
+            assert getServiceFlag(itemID) == 0
+            msg = 0
+
+        spiedItemID = spiedDesc = spiedMilesDoneAt = spiedErrMsg = None
+        return msg
+
+    # Invalid service item ID should return 404
+    assert 404 == runTest(itemID=0, miles='100000')
+    assert 404 == runTest(itemID=99999, miles='100000')
+    assert 404 == runTest(itemID='blah', miles='100000')
+
+    # Blank miles should show error
+    assert main.FORMFIELDBLANK.format(field='miles') in runTest(itemID=1, miles='')
+
+    # Non-numeric miles should show error
+    assert main.ODONOTANUMBER in runTest(itemID=1, miles='notanumber')
+
+    # Good inputs should succeed
+    # Service item 1 is for vehicle 1 which has 110000 miles
+    assert 0 == runTest(itemID=1, miles='112000')
+    # Service item 6 is for vehicle 3 which has only 10 miles
+    assert 0 == runTest(itemID=6, miles='15')
