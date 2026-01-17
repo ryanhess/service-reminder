@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from twilio.twiml.messaging_response import MessagingResponse
 from contextlib import contextmanager, nullcontext as does_not_raise
 from fastapi.testclient import TestClient
-import xml.etree.ElementTree as ET  # for parsing responses from routes.
+import xml.etree.ElementTree as ET  # for parsing responses from Twilio API routes.
 
 
 @fixture
@@ -722,7 +722,7 @@ def test_webUserRoutes(client):
     response = client.get('/Service/blah/Update-Service-Done')
     assert response.status_code == 404
 
-# Uses response.context and response.template.name from FastAPI TestClient
+
 # to verify correct template rendering and context data.
 def test_newUserUIPOST(client):
     def checkUserInDB(username, phone):
@@ -771,7 +771,7 @@ def test_newUserUIPOST(client):
     assert checkUserInDB('###fsf23', '+14838812931')
 
 
-# Uses response.context and response.template.name from FastAPI TestClient
+
 def test_newVehicleUIPOST(client):
     def checkVehCreated(vehID):
         """Check that vehicle exists in DB."""
@@ -791,6 +791,7 @@ def test_newVehicleUIPOST(client):
     assert response.status_code == 200
     assert response.template.name == 'new_vehicle_conf.html'
     vehicle = response.context.get('vehicle')
+    assert response.context.get('model') == 'blah; drop table users;'
     assert vehicle
     assert checkVehCreated(vehicle['id'])
 
@@ -929,7 +930,7 @@ def test_newVehicleUIPOST(client):
     assert vehicle['miles'] == '1000'
     
 
-# Uses response.context and response.template.name from FastAPI TestClient
+
 def test_UpdateODOUIPOST(client):
     buildSampleDB()
 
@@ -1004,7 +1005,6 @@ def test_UpdateODOUIPOST(client):
     assert getVehicleMiles(3) == 100.0
 
 
-# Uses response.context and response.template.name from FastAPI TestClient
 def test_newServiceUIPOST(client):
     buildSampleDB()
 
@@ -1104,7 +1104,7 @@ def test_newServiceUIPOST(client):
     assert main.ILLEGALDUPLICATESERVICE.format(desc='New Test Service') in responseErrorMsg
 
 
-# Uses response.context and response.template.name from FastAPI TestClient
+
 def test_UpdateServiceDoneUIPOST(client):
     buildSampleDB()
 
