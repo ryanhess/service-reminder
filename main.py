@@ -551,7 +551,7 @@ def validateItemIdInURL(itemID: int):
     try:
         itemID = int(itemID)
     except ValueError:
-        raise ValueError(INVALIDPARAM.formt())
+        raise ValueError(INVALIDPARAM.format(param='itemID'))
 
     res = querySQL(stmt='''
         SELECT itemID FROM serviceSchedule
@@ -575,15 +575,10 @@ def handleNewVehiclePOST(userID, nick: str, year: str, make: str, model: str, mi
     except Exception as e:
         raise e
 
-    # nickname - nick param is already provided
-    if nick is None:
-        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='nickname'))
+    # nickname - empty is OK (will use year make model as display name)
 
     # year
-    # check that it is present
-    # check that it will convert to a YEAR type in SQL
-    if year is None:
-        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='year'))
+    # check that it is present and will convert to a YEAR type in SQL
     if year == '' or not year:
         raise FormInputError(FORMFIELDBLANK.format(field='year'))
 
@@ -597,14 +592,10 @@ def handleNewVehiclePOST(userID, nick: str, year: str, make: str, model: str, mi
         raise FormInputError(INVALIDPARAM.format(param='year'))
 
     # make
-    if make is None:
-        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='make'))
     if make == '':
         raise FormInputError(FORMFIELDBLANK.format(field='make'))
 
     # model
-    if model is None:
-        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='model'))
     if model == '':
         raise FormInputError(FORMFIELDBLANK.format(field='model'))
 
@@ -622,11 +613,7 @@ def handleNewVehiclePOST(userID, nick: str, year: str, make: str, model: str, mi
 
     dispName = result[0][0]
 
-    # now try to add the odometer reading.
-    # updateODO
-    if miles is None:
-        raise KeyError(PARAMNOTFOUNDINREQUEST.format(param='miles'))
-
+    # now try to add the odometer reading if provided
     if len(miles) > 0:
         try:
             updateODO(vehID=newVehID, newODO=miles)
@@ -704,7 +691,7 @@ def handleNewServicePOST(vehicleID: int, description: str, interval: str, milesL
 
     # if there is more than an empty array in the result,
     if result != []:
-        raise DuplicateItemError(ILLEGALDUPLICATESERVICE(desc=description))
+        raise DuplicateItemError(ILLEGALDUPLICATESERVICE.format(desc=description))
 
     result = querySQL(stmt='''
         SELECT userID FROM vehicles
@@ -744,11 +731,11 @@ def handleUpdateOdoPOST(vehicleID: int, miles: str):
 
     except TypeError:
         raise FormInputError(ODONOTANUMBER)
-    except Exception() as e:
+    except Exception as e:
         raise e
 
     return miles
-    
+
 
 def handleUpdateServDonePOST(itemID: int, miles: str):
     print(f"handleUpdateServDonePOST called with itemID={itemID}, miles={miles}")
@@ -771,10 +758,11 @@ def handleUpdateServDonePOST(itemID: int, miles: str):
         raise FormInputError(f'{e}')
     except TypeError:
         raise FormInputError(ODONOTANUMBER)
-    except Exception() as e:
+    except Exception as e:
         raise e
 
     return miles
+
 
 ### WEB UI ROUTES ###
 
@@ -782,7 +770,7 @@ def handleUpdateServDonePOST(itemID: int, miles: str):
 # and nav links to Home and Users
 @app.get("/", response_class=HTMLResponse)
 def serveHome(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 # USERS #
@@ -801,14 +789,14 @@ def serveUsersList(request: Request):
         user = {'userID': item[0], 'username': item[1]}
         users.append(user)
 
-    return templates.TemplateResponse("users.html", {"request": request, "users": users})
+    return templates.TemplateResponse(request, "users.html", {"users": users})
 
 
 # handles two functions in one:
 @app.get("/Users/New", response_class=HTMLResponse)
 def newUserUIGet(request: Request):
     newUserForm = 'new_user_form.html'
-    return templates.TemplateResponse(newUserForm, {"request": request, "error": False})
+    return templates.TemplateResponse(request, newUserForm, {"error": False})
 
 
 @app.post("/Users/New", response_class=HTMLResponse)
@@ -818,12 +806,12 @@ def newUserUIPost(request: Request, username: str = Form(...), phone: str = Form
     try:
         userInfo = handleNewUserPOST(username, phone)
     except FormInputError as f:
-        return templates.TemplateResponse(newUserForm, {"request": request, "errorMessage": str(f)})
+        return templates.TemplateResponse(request, newUserForm, {"errorMessage": str(f)})
     except DuplicateItemError as d:
-        return templates.TemplateResponse(newUserForm, {"request": request, "errorMessage": str(d)})
+        return templates.TemplateResponse(request, newUserForm, {"errorMessage": str(d)})
 
     print(f"username={username}, phone={phone}")
-    return templates.TemplateResponse(newUserConf, {"request": request, "userInfo": userInfo})
+    return templates.TemplateResponse(request, newUserConf, {"userInfo": userInfo})
 
 
 # show individual user
@@ -870,7 +858,7 @@ def serveSingleUserPage(request: Request, userID: str):
         }
         vehicles.append(veh)
 
-    return templates.TemplateResponse("single_user.html", {"request": request, "user": {'id': userID, 'name': username}, "vehicles": vehicles})
+    return templates.TemplateResponse(request, "single_user.html", {"user": {'id': userID, 'name': username}, "vehicles": vehicles})
 
 
 # VEHICLES #
@@ -914,7 +902,7 @@ def serveSingleVehiclePage(request: Request, vehicleID: str):
             'dueAtMiles': result[3]
         })
 
-    return templates.TemplateResponse("single_vehicle.html", {"request": request, "vehicle": vehicle, "serviceSched": serviceSched})
+    return templates.TemplateResponse(request, "single_vehicle.html", {"vehicle": vehicle, "serviceSched": serviceSched})
 
 
 @app.get('/Users/{userID}/New-Vehicle', response_class=HTMLResponse)
@@ -931,18 +919,18 @@ def newVehicleUIGet(request: Request, userID: str):
     ''', val=(userID,))
     user = {'id': res[0][0], 'username': res[0][1]}
 
-    return templates.TemplateResponse(newVehForm, {"request": request, "user": user})
+    return templates.TemplateResponse(request, newVehForm, {"user": user})
 
 
 @app.post('/Users/{userID}/New-Vehicle', response_class=HTMLResponse)
 def newVehicleUIPost(
     request: Request,
     userID: str,
-    nickname: str = Form(None),
-    year: str = Form(None),
-    make: str = Form(None),
-    model: str = Form(None),
-    miles: str = Form(None)
+    nickname: str = Form(""),
+    year: str = Form(""),
+    make: str = Form(""),
+    model: str = Form(""),
+    miles: str = Form("")
 ):
     newVehForm = 'new_vehicle_form.html'
     newVehConf = 'new_vehicle_conf.html'
@@ -960,14 +948,14 @@ def newVehicleUIPost(
     try:
         vehicle = handleNewVehiclePOST(userID, nickname, year, make, model, miles)
     except FormInputError as f:
-        return templates.TemplateResponse(newVehForm, {"request": request, "user": user, "errorMessage": str(f)})
+        return templates.TemplateResponse(request, newVehForm, {"user": user, "errorMessage": str(f)})
     except DuplicateItemError as d:
-        return templates.TemplateResponse(newVehForm, {"request": request, "user": user, "errorMessage": str(d)})
+        return templates.TemplateResponse(request, newVehForm, {"user": user, "errorMessage": str(d)})
     except Exception as e:
         print(e)
         return Response(status_code=400)
 
-    return templates.TemplateResponse(newVehConf, {"request": request, "user": user, "vehicle": vehicle})
+    return templates.TemplateResponse(request, newVehConf, {"user": user, "vehicle": vehicle})
 
 
 @app.get('/Vehicles/{vehicleID}/New-Service', response_class=HTMLResponse)
@@ -978,7 +966,7 @@ def newServiceUIGet(request: Request, vehicleID: str):
     except:
         return Response(status_code=404)
 
-    return templates.TemplateResponse(newServForm, {"request": request, "vehicleID": vehicleID, "error": False})
+    return templates.TemplateResponse(request, newServForm, {"vehicleID": vehicleID, "error": False})
 
 
 @app.post('/Vehicles/{vehicleID}/New-Service', response_class=HTMLResponse)
@@ -999,14 +987,14 @@ def newServiceUIPost(
     try:
         newService = handleNewServicePOST(vehicleID, description, interval, milesLastDone)
     except FormInputError as f:
-        return templates.TemplateResponse(newServForm, {"request": request, "vehicleID": vehicleID, "error": True, "errorMessage": str(f)})
+        return templates.TemplateResponse(request, newServForm, {"vehicleID": vehicleID, "error": True, "errorMessage": str(f)})
     except DuplicateItemError as d:
-        return templates.TemplateResponse(newServForm, {"request": request, "vehicleID": vehicleID, "error": True, "errorMessage": str(d)})
+        return templates.TemplateResponse(request, newServForm, {"vehicleID": vehicleID, "error": True, "errorMessage": str(d)})
     except Exception as e:
         print(e)
         return Response(status_code=400)
 
-    return templates.TemplateResponse(newServConf, {"request": request, "vehicleID": vehicleID, "newService": newService})
+    return templates.TemplateResponse(request, newServConf, {"vehicleID": vehicleID, "newService": newService})
 
 
 @app.get('/Vehicles/{vehicleID}/Update-Odometer', response_class=HTMLResponse)
@@ -1023,7 +1011,7 @@ def updateOdoUIGet(request: Request, vehicleID: str):
     ''', val=(vehicleID, ))
     vehicle = {'id': res[0][0], 'displayName': res[0][1], 'miles': res[0][2]}
 
-    return templates.TemplateResponse(updateODOForm, {"request": request, "vehicle": vehicle})
+    return templates.TemplateResponse(request, updateODOForm, {"vehicle": vehicle})
 
 
 @app.post('/Vehicles/{vehicleID}/Update-Odometer', response_class=HTMLResponse)
@@ -1044,14 +1032,14 @@ def updateOdoUIPost(request: Request, vehicleID: str, miles: str = Form(...)):
     try:
         vehicle['miles'] = handleUpdateOdoPOST(vehicleID, miles)
     except FormInputError as f:
-        return templates.TemplateResponse(updateODOForm, {"request": request, "vehicle": vehicle, "errorMessage": str(f)})
+        return templates.TemplateResponse(request, updateODOForm, {"vehicle": vehicle, "errorMessage": str(f)})
     except DuplicateItemError as d:
-        return templates.TemplateResponse(updateODOForm, {"request": request, "vehicle": vehicle, "errorMessage": str(d)})
+        return templates.TemplateResponse(request, updateODOForm, {"vehicle": vehicle, "errorMessage": str(d)})
     except Exception as e:
         print(e)
         return Response(status_code=400)
 
-    return templates.TemplateResponse(updateODOConf, {"request": request, "vehicle": vehicle})
+    return templates.TemplateResponse(request, updateODOConf, {"vehicle": vehicle})
 
 
 @app.get('/Service/{itemID}/Update-Service-Done', response_class=HTMLResponse)
@@ -1071,7 +1059,7 @@ def updateServiceDoneUIGet(request: Request, itemID: str):
                    'description': res[0][2],
                    'milesDoneAt': 0}
 
-    return templates.TemplateResponse(servDoneForm, {"request": request, "serviceItem": serviceItem})
+    return templates.TemplateResponse(request, servDoneForm, {"serviceItem": serviceItem})
 
 
 @app.post('/Service/{itemID}/Update-Service-Done', response_class=HTMLResponse)
@@ -1096,16 +1084,16 @@ def updateServiceDoneUIPost(request: Request, itemID: str, miles: str = Form(...
         serviceItem['milesDoneAt'] = handleUpdateServDonePOST(itemID, miles)
     except FormInputError as f:
         traceback.print_exc()
-        return templates.TemplateResponse(servDoneForm, {"request": request, "serviceItem": serviceItem, "errorMessage": str(f)})
+        return templates.TemplateResponse(request, servDoneForm, {"serviceItem": serviceItem, "errorMessage": str(f)})
     except DuplicateItemError as d:
         traceback.print_exc()
-        return templates.TemplateResponse(servDoneForm, {"request": request, "serviceItem": serviceItem, "errorMessage": str(d)})
+        return templates.TemplateResponse(request, servDoneForm, {"serviceItem": serviceItem, "errorMessage": str(d)})
     except Exception as e:
         traceback.print_exc()
         print(e)
         return Response(status_code=400)
 
-    return templates.TemplateResponse(servDoneConf, {"request": request, "serviceItem": serviceItem})
+    return templates.TemplateResponse(request, servDoneConf, {"serviceItem": serviceItem})
 
 
 ### Running the server ###

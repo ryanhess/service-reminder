@@ -1,4 +1,7 @@
-.PHONY: make clean
+.PHONY: install run
+
+run:
+	python main.py
 
 install:
 	pip install -r requirements.txt
@@ -6,11 +9,6 @@ install:
 test:
 	pytest tests.py
 
-make:
-	python main.py
-
 clean:
-	$(MAKE) install
 	python DB_Builder.py
-	$(MAKE) make
-
+	$(Make) run

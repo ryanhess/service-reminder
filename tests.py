@@ -572,9 +572,9 @@ def test_receiveOdoMsg(client, mocker):
         # # does receiveOdoMsg return a status code 200?
         assert response.status_code == 200
 
-        # response will be a Flask.Response object. From this we must unpack
-        # twiML that encodes the respnse. This is xml.
-        respData = response.get_data()
+        # response will be a Starlette Response object. From this we must unpack
+        # twiML that encodes the response. This is xml.
+        respData = response.content
 
         # will it parse as XML? Then it is PROBABLY twiML
         try:
@@ -730,11 +730,14 @@ def test_webUserRoutes(client):
 def test_newUserUIPOST(client, mocker):
     spiedUser = spiedPhone = spiedErrMsg = None
 
-    def mockRenderPage(unusedTemplateFile="", userInfo={'username': None, 'phone': None}, error=False, errorMessage=""):
+    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
         nonlocal spiedUser, spiedPhone, spiedErrMsg
-        spiedUser = userInfo['username']
-        spiedPhone = userInfo['phone']
-        spiedErrMsg = errorMessage
+        if context is None:
+            context = {}
+        userInfo = context.get('userInfo', {'username': None, 'phone': None})
+        spiedUser = userInfo.get('username') if userInfo else None
+        spiedPhone = userInfo.get('phone') if userInfo else None
+        spiedErrMsg = context.get('errorMessage', "")
 
         return Response(status_code=200)
 
@@ -809,15 +812,15 @@ def test_newUserUIPOST(client, mocker):
 def test_newVehicleUIPOST(client, mocker):
     spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
 
-    def mockRenderPage(emptyUnusedTemplateFileName="",
-            user={'id': None, 'username': None},
-            vehicle={'id': None, 'displayName': None, 'miles': None},
-            errorMessage=""):
+    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
         nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
-        spiedVehID = vehicle['id']
-        spiedDispName = vehicle['displayName']
-        spiedMiles = vehicle['miles']
-        spiedErrMsg = errorMessage
+        if context is None:
+            context = {}
+        vehicle = context.get('vehicle', {'id': None, 'displayName': None, 'miles': None})
+        spiedVehID = vehicle.get('id') if vehicle else None
+        spiedDispName = vehicle.get('displayName') if vehicle else None
+        spiedMiles = vehicle.get('miles') if vehicle else None
+        spiedErrMsg = context.get('errorMessage', "")
 
         return Response(status_code=200)
 
@@ -874,44 +877,43 @@ def test_newVehicleUIPOST(client, mocker):
         if spiedErrMsg:
             msg = spiedErrMsg
         else:
-            nick = vehicle['nickname']
+            nick = vehicle.get('nickname', '')
             calcDispName = nick if nick and len(nick) > 0 \
                 else vehicle['year'] + ' ' + vehicle['make'] + \
                 ' ' + vehicle['model']
             assert calcDispName == spiedDispName
-            assert vehicle['miles'] == spiedMiles
+            assert vehicle.get('miles', '') == spiedMiles
             assert checkVehCreated(vehID=spiedVehID, oldIDs=beforeVehIDs)
             msg = 0
 
         spiedDispName = spiedMiles = spiedErrMsg = None
 
         return msg
-    
+
     # sql injection should be harmlessly treated as any other string
     assert 0 == runTest(userID=2, vehicle={'nickname': 'hello; drop table users;',
                                             'year': '2000',
                                             'make': 'lex',
                                             'model': 'blah; drop table users;',
                                             'miles': ''})
-    
-    # incomplete form requests should return a 400.
-    # also, in Flask a None value is equivalent to a missing key.
-    assert 400 == runTest(userID=1, vehicle={})
-    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello'})
-    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
+
+    # With Form("") defaults, missing required fields return validation errors
+    # (200 with error message), not 400 status codes.
+    # Missing year shows blank year error
+    assert main.FORMFIELDBLANK.format(field='year') in runTest(userID=1, vehicle={})
+    assert main.FORMFIELDBLANK.format(field='year') in runTest(userID=3, vehicle={'nickname': 'hello'})
+    # Missing make shows blank make error (year is provided)
+    assert main.FORMFIELDBLANK.format(field='make') in runTest(userID=3, vehicle={'nickname': 'hello',
                                             'year': '2000'})
-    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
+    # Missing model shows blank model error
+    assert main.FORMFIELDBLANK.format(field='model') in runTest(userID=3, vehicle={'nickname': 'hello',
                                             'year': '2000',
                                             'make': 'lex'})
-    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
+    # With Form("") default, missing miles is valid (treated as empty string)
+    assert 0 == runTest(userID=3, vehicle={'nickname': 'hello',
                                             'year': '2000',
                                             'make': 'lex',
                                             'model': 'blah'})
-    assert 400 == runTest(userID=3, vehicle={'nickname': 'hello',                           
-                                            'year': '2000',
-                                            'make': 'lex',
-                                            'model': 'blah',
-                                            'miles': None})
 
     # assert input errors.
     assert main.FORMFIELDBLANK.format(field='year') in \
@@ -992,7 +994,6 @@ def test_newVehicleUIPOST(client, mocker):
                                     'miles': '0.00001'})
     
 
-# empty
 def test_UpdateODOUIPOST(client, mocker):
     spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
     def mockRenderPage(unusedTemplateFile="",
