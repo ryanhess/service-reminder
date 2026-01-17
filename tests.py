@@ -9,8 +9,7 @@ from datetime import date, timedelta
 from twilio.twiml.messaging_response import MessagingResponse
 from contextlib import contextmanager, nullcontext as does_not_raise
 from fastapi.testclient import TestClient
-from fastapi import Response
-import xml.etree.ElementTree as ET  # for parsing responses from routes.
+import xml.etree.ElementTree as ET  # for parsing responses from Twilio API routes.
 
 
 @fixture
@@ -723,488 +722,431 @@ def test_webUserRoutes(client):
     response = client.get('/Service/blah/Update-Service-Done')
     assert response.status_code == 404
 
-# simple createUser function
-# check that the user is created.
-# testing input validation is coming soon.
-# test that the new user is in the database and that status code is 200
-def test_newUserUIPOST(client, mocker):
-    spiedUser = spiedPhone = spiedErrMsg = None
 
-    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
-        nonlocal spiedUser, spiedPhone, spiedErrMsg
-        if context is None:
-            context = {}
-        userInfo = context.get('userInfo', {'username': None, 'phone': None})
-        spiedUser = userInfo.get('username') if userInfo else None
-        spiedPhone = userInfo.get('phone') if userInfo else None
-        spiedErrMsg = context.get('errorMessage', "")
-
-        return Response(status_code=200)
-
-    renderMock = mocker.patch('main.templates.TemplateResponse')
-    renderMock.side_effect = mockRenderPage
-
-    # checks that username is in db and that its phone is 'phone'
-    # if either is not true, return false.
-    # should be passed sanitized and properly formatted data or
-    # it will return false.
-    def checkUserInDB(usrN, phone):
-        res = main.querySQL(stmt=f'''
-            SELECT userID From users
-            WHERE username = '{usrN}'
-        ''')
-
+# to verify correct template rendering and context data.
+def test_newUserUIPOST(client):
+    def checkUserInDB(username, phone):
+        """Check that username exists in DB with matching phone."""
+        res = main.querySQL(
+            stmt='''
+                SELECT phone FROM users WHERE username = %s
+            ''',
+            val=(username,)
+        )
+       
         if res == []:
             return False
-        else:
-            userID = res[0][0]
-            res = main.querySQL(stmt=f'''
-                SELECT phone FROM users
-                WHERE userID = '{userID}'
-            ''')
-            return res[0][0] == str(phone)
+        return res[0][0] == str(phone)
 
-    # runs some tests inside and returns the error message that would be
-    # displayed so inputs can be asserted outside.
-    # if no error, returns 0 so that "assert not runTest()" is asserting that
-    # the function runs with no errors.
-    def runTest(usr, phone):
-        nonlocal spiedUser, spiedPhone, spiedErrMsg
-        route = '/Users/New'
-        form = {
-            'username': usr,
-            'phone': phone
-        }
+    # Test duplicate username error
+    response = client.post('/Users/New', data={'username': 'ryanhess', 'phone': '1414144444'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_user_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.ILLEGALDUPLICATE.format(param='username') in responseErrorMsg
 
-        response = client.post(url=route, data=form)
+    # Test duplicate phone error
+    response = client.post('/Users/New', data={'username': 'thepinkpanther', 'phone': '+18777804236'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_user_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.ILLEGALDUPLICATE.format(param='phone') in responseErrorMsg
 
-        # no matter what the server should respond with a webpage.
-        # in this case, I am artificially generating responses
-        # but if it gets to rendering the page without errors I think that
-        # is enough for the test function to test.
-        assert response.status_code == 200
+    # Test successful user creation
+    response = client.post('/Users/New', data={'username': 'newUserTest123', 'phone': '+12838812931'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_user_submitted.html'
+    assert 'userInfo' in response.context
+    assert response.context['userInfo']['username'] == 'newUserTest123'
+    assert response.context['userInfo']['phone'] == '+12838812931'
+    assert checkUserInDB('newUserTest123', '+12838812931')
 
-        if spiedErrMsg:
-            msg = spiedErrMsg
-        else:
-            assert checkUserInDB(spiedUser, spiedPhone)
-            msg = 0
-
-        spiedUser = spiedPhone = spiedErrMsg = None
-
-        return msg
-
-    # asserting a username that already exists
-    assert main.ILLEGALDUPLICATE.format(param='username') in runTest(
-        usr='ryanhess', phone='1414144444')
-
-    # asserting a phone number that already exists
-    assert main.ILLEGALDUPLICATE.format(param='phone') in runTest(
-        usr='thepinkpanther', phone='+18777804236'
-    )
-
-    # asserting correct operation with good inputs
-    assert not runTest(usr='newUserTest123', phone='+12838812931')
-    assert not runTest(usr='###fsf23', phone='+14838812931')
+    # Test another successful user creation
+    response = client.post('/Users/New', data={'username': '###fsf23', 'phone': '+14838812931'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_user_submitted.html'
+    assert 'userInfo' in response.context
+    assert checkUserInDB('###fsf23', '+14838812931')
 
 
-# empty
-def test_newVehicleUIPOST(client, mocker):
-    spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
 
-    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
-        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
-        if context is None:
-            context = {}
-        vehicle = context.get('vehicle', {'id': None, 'displayName': None, 'miles': None})
-        spiedVehID = vehicle.get('id') if vehicle else None
-        spiedDispName = vehicle.get('displayName') if vehicle else None
-        spiedMiles = vehicle.get('miles') if vehicle else None
-        spiedErrMsg = context.get('errorMessage', "")
-
-        return Response(status_code=200)
-
-    renderMock = mocker.patch('main.templates.TemplateResponse')
-    renderMock.side_effect = mockRenderPage
-
-    # check that the vehicle ID is NOT in a set of old ids
-    # (it is original)
-    # and that it is NOW in the database.
-    # use a context manager to control the state of this. 
-    def checkVehCreated(vehID, oldIDs):
-        try:
-            vehID = int(vehID)
-        except ValueError:
-            return False
-
-        if vehID not in oldIDs:
-            res = main.querySQL(stmt='''
-                SELECT vehicleID From vehicles
-                WHERE vehicleID = %s
-            ''', val=(vehID,))
-
-            if res == []:
-                return False
-            else: 
-                return True
-        else:
-            return False
-
-    # runs some tests inside and returns the error message that would be
-    # displayed so inputs can be asserted outside.
-    # if no error, returns 0 so that "assert not runTest()" is asserting that
-    # the function runs with no errors.
-    def runTest(userID, vehicle):
-        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
-        route = f'/Users/{userID}/New-Vehicle'
-
-        beforeVehIDs = set()
+def test_newVehicleUIPOST(client):
+    def checkVehCreated(vehID):
+        """Check that vehicle exists in DB."""
         res = main.querySQL(stmt='''
-            SELECT vehicleID FROM vehicles
-        ''')
-        for result in res:
-            beforeVehIDs.add(result[0])
+            SELECT vehicleID FROM vehicles WHERE vehicleID = %s
+        ''', val=(vehID,))
+        return res != []
 
-        response = client.post(url=route, data=vehicle)
+    # Test SQL injection is treated as harmless string
+    response = client.post('/Users/2/New-Vehicle', data={
+        'nickname': 'hello; drop table users;',
+        'year': '2000',
+        'make': 'lex',
+        'model': 'blah; drop table users;',
+        'miles': ''
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_conf.html'
+    vehicle = response.context.get('vehicle')
+    assert response.context.get('model') == 'blah; drop table users;'
+    assert vehicle
+    assert checkVehCreated(vehicle['id'])
 
-        # we need to be able to detect that specifically:
-        # the function fails to return a 200 code. This is
-        # by changing the returned message to indicate the
-        # response code if not 200.
-        if response.status_code != 200:
-            return response.status_code
+    # Test missing year error
+    response = client.post('/Users/1/New-Vehicle', data={})
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='year') in responseErrorMsg
 
-        if spiedErrMsg:
-            msg = spiedErrMsg
-        else:
-            nick = vehicle.get('nickname', '')
-            calcDispName = nick if nick and len(nick) > 0 \
-                else vehicle['year'] + ' ' + vehicle['make'] + \
-                ' ' + vehicle['model']
-            assert calcDispName == spiedDispName
-            assert vehicle.get('miles', '') == spiedMiles
-            assert checkVehCreated(vehID=spiedVehID, oldIDs=beforeVehIDs)
-            msg = 0
+    # Test missing year with only nickname
+    response = client.post('/Users/3/New-Vehicle', data={'nickname': 'hello'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='year') in responseErrorMsg
 
-        spiedDispName = spiedMiles = spiedErrMsg = None
+    # Test missing make error
+    response = client.post('/Users/3/New-Vehicle', data={'nickname': 'hello', 'year': '2000'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='make') in responseErrorMsg
 
-        return msg
+    # Test missing model error
+    response = client.post('/Users/3/New-Vehicle', data={'nickname': 'hello', 'year': '2000', 'make': 'lex'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='model') in responseErrorMsg
 
-    # sql injection should be harmlessly treated as any other string
-    assert 0 == runTest(userID=2, vehicle={'nickname': 'hello; drop table users;',
-                                            'year': '2000',
-                                            'make': 'lex',
-                                            'model': 'blah; drop table users;',
-                                            'miles': ''})
+    # Test missing miles is valid (Form("") default)
+    response = client.post('/Users/3/New-Vehicle', data={
+        'nickname': 'hello', 'year': '2000', 'make': 'lex', 'model': 'blah'
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_conf.html'
 
-    # With Form("") defaults, missing required fields return validation errors
-    # (200 with error message), not 400 status codes.
-    # Missing year shows blank year error
-    assert main.FORMFIELDBLANK.format(field='year') in runTest(userID=1, vehicle={})
-    assert main.FORMFIELDBLANK.format(field='year') in runTest(userID=3, vehicle={'nickname': 'hello'})
-    # Missing make shows blank make error (year is provided)
-    assert main.FORMFIELDBLANK.format(field='make') in runTest(userID=3, vehicle={'nickname': 'hello',
-                                            'year': '2000'})
-    # Missing model shows blank model error
-    assert main.FORMFIELDBLANK.format(field='model') in runTest(userID=3, vehicle={'nickname': 'hello',
-                                            'year': '2000',
-                                            'make': 'lex'})
-    # With Form("") default, missing miles is valid (treated as empty string)
-    assert 0 == runTest(userID=3, vehicle={'nickname': 'hello',
-                                            'year': '2000',
-                                            'make': 'lex',
-                                            'model': 'blah'})
+    # Test blank year error
+    response = client.post('/Users/3/New-Vehicle', data={
+        'nickname': 'hello', 'year': '', 'make': 'lex', 'model': 'blah', 'miles': '20'
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='year') in responseErrorMsg
 
-    # assert input errors.
-    assert main.FORMFIELDBLANK.format(field='year') in \
-        runTest(userID=3, vehicle={'nickname': 'hello',                           
-                                    'year': '',
-                                    'make': 'lex',
-                                    'model': 'blah',
-                                    'miles': 20})
-    assert main.INVALIDPARAM.format(param='year') in \
-        runTest(userID=1, vehicle={'nickname': 'hello',                           
-                                    'year': '-5',
-                                    'make': 'lex',
-                                    'model': 'blah',
-                                    'miles': ''})
-    assert main.INVALIDPARAM.format(param='year') in \
-        runTest(userID=1, vehicle={'nickname': 'hello',                           
-                                    'year': 'not a year',
-                                    'make': 'lex',
-                                    'model': 'blah',
-                                    'miles': ''})    
-    # having no nickname in the request should be OK
-    assert not runTest(userID=3, vehicle={'nickname': '',                           
-                                    'year': '2000',
-                                    'make': 'lex',
-                                    'model': 'blah',
-                                    'miles': ''})
-    assert main.FORMFIELDBLANK.format(field='make') in \
-        runTest(userID=1, vehicle={'nickname': 'hello',                           
-                                    'year': '2000',
-                                    'make': '',
-                                    'model': 'blah',
-                                    'miles': ''})
+    # Test invalid year (negative)
+    response = client.post('/Users/1/New-Vehicle', data={
+        'nickname': 'hello', 'year': '-5', 'make': 'lex', 'model': 'blah', 'miles': ''
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.INVALIDPARAM.format(param='year') in responseErrorMsg
+
+    # Test invalid year (not a number)
+    response = client.post('/Users/1/New-Vehicle', data={
+        'nickname': 'hello', 'year': 'not a year', 'make': 'lex', 'model': 'blah', 'miles': ''
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.INVALIDPARAM.format(param='year') in responseErrorMsg
+
+    # Test empty nickname is OK
+    response = client.post('/Users/3/New-Vehicle', data={
+        'nickname': '', 'year': '2000', 'make': 'lex', 'model': 'blah', 'miles': ''
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_conf.html'
+
+    # Test blank make error
+    response = client.post('/Users/1/New-Vehicle', data={
+        'nickname': 'hello', 'year': '2000', 'make': '', 'model': 'blah', 'miles': ''
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='make') in responseErrorMsg
+
+    # Test blank model error
+    response = client.post('/Users/1/New-Vehicle', data={
+        'nickname': 'hello', 'year': '2000', 'make': 'make', 'model': '', 'miles': ''
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='model') in responseErrorMsg
+
+    # Test miles not a number error
+    response = client.post('/Users/1/New-Vehicle', data={
+        'nickname': 'hello', 'year': '2000', 'make': 'make', 'model': 'blah', 'miles': 'word'
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.NOTANUMBER.format(what='miles') in responseErrorMsg
+
+    # Test negative miles error
+    response = client.post('/Users/1/New-Vehicle', data={
+        'nickname': 'hello', 'year': '2000', 'make': 'make', 'model': 'blah', 'miles': '-1'
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.ODOBELOWZERO in responseErrorMsg
+
+    # Test successful vehicle creation cases
+    response = client.post('/Users/1/New-Vehicle', data={
+        'nickname': '', 'year': '2000', 'make': 'make', 'model': 'blah', 'miles': ''
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_conf.html'
+    assert response.context.get('vehicle')
+
+    response = client.post('/Users/1/New-Vehicle', data={
+        'nickname': 'nickname', 'year': '2000', 'make': 'make', 'model': 'blah', 'miles': '1000'
+    })
+    assert response.status_code == 200
+    assert response.template.name == 'new_vehicle_conf.html'
+    vehicle = response.context.get('vehicle')
+    assert vehicle
+    assert vehicle['displayName'] == 'nickname'
+    assert vehicle['miles'] == '1000'
     
-    assert main.FORMFIELDBLANK.format(field='model') in \
-        runTest(userID=1, vehicle={'nickname': 'hello',                           
-                                    'year': '2000',
-                                    'make': 'make',
-                                    'model': '',
-                                    'miles': ''})
-    assert main.NOTANUMBER.format(what='miles') in \
-        runTest(userID=1, vehicle={'nickname': 'hello',                           
-                                    'year': '2000',
-                                    'make': 'make',
-                                    'model': 'blah',
-                                    'miles': 'word'})
-    assert main.ODOBELOWZERO in \
-        runTest(userID=1, vehicle={'nickname': 'hello',                           
-                                    'year': '2000',
-                                    'make': 'make',
-                                    'model': 'blah',
-                                    'miles': '-1'})
-    
-    #should be good inputs
-    assert not runTest(userID=1, vehicle={'nickname': '',                           
-                                    'year': '2000',
-                                    'make': 'make',
-                                    'model': 'blah',
-                                    'miles': ''})
-    assert not runTest(userID=1, vehicle={'nickname': 'nickname',                           
-                                    'year': '2000',
-                                    'make': 'make',
-                                    'model': 'blah',
-                                    'miles': '1000'})
-    assert not runTest(userID=1, vehicle={'nickname': '123',                           
-                                    'year': '2',
-                                    'make': '1',
-                                    'model': 'blah',
-                                    'miles': '0.1'})
-    assert not runTest(userID=1, vehicle={'nickname': 'my car is cool',                           
-                                    'year': '2',
-                                    'make': '1',
-                                    'model': 'blah',
-                                    'miles': '0.1'})
-    assert not runTest(userID=1, vehicle={'nickname': 'my car is cool',                           
-                                    'year': '2',
-                                    'make': '1',
-                                    'model': 'blah',
-                                    'miles': '0.00001'})
-    
 
-def test_UpdateODOUIPOST(client, mocker):
+
+def test_UpdateODOUIPOST(client):
     buildSampleDB()
-    spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
-
-    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
-        # modify the variables defined in the outer scope.
-        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
-        if context is None:
-            context = {}
-        vehicle = context.get('vehicle', {})
-        spiedVehID = vehicle.get('id') if vehicle else None
-        spiedDispName = vehicle.get('displayName') if vehicle else None
-        spiedMiles = vehicle.get('miles') if vehicle else None
-        spiedErrMsg = context.get('errorMessage', "")
-        return Response(status_code=200)
-
-    renderMock = mocker.patch('main.templates.TemplateResponse')
-    renderMock.side_effect = mockRenderPage
 
     def getVehicleMiles(vehicleID):
+        """Get current miles from DB for verification."""
         res = main.querySQL(stmt='''
             SELECT miles FROM vehicles WHERE vehicleID = %s
         ''', val=(vehicleID,))
         return float(res[0][0]) if res and res[0][0] else None
 
-    def runTest(vehicleID, miles):
-        nonlocal spiedVehID, spiedDispName, spiedMiles, spiedErrMsg
-        route = f'/Vehicles/{vehicleID}/Update-Odometer'
-
-        response = client.post(url=route, data={'miles': miles})
-
-        if response.status_code != 200:
-            return response.status_code
-
-        if spiedErrMsg:
-            msg = spiedErrMsg
-        else:
-            # Verify the odometer was actually updated in DB
-            dbMiles = getVehicleMiles(vehicleID)
-            assert dbMiles == round(float(miles), 1)
-            msg = 0
-
-        spiedVehID = spiedDispName = spiedMiles = spiedErrMsg = None
-        return msg
-
     # Invalid vehicle ID should return 404
-    assert 404 == runTest(vehicleID=0, miles='50000')
-    assert 404 == runTest(vehicleID=99999, miles='50000')
-    assert 404 == runTest(vehicleID='blah', miles='50000')
+    assert client.post('/Vehicles/0/Update-Odometer', data={'miles': '50000'}).status_code == 404
+    assert client.post('/Vehicles/99999/Update-Odometer', data={'miles': '50000'}).status_code == 404
+    assert client.post('/Vehicles/blah/Update-Odometer', data={'miles': '50000'}).status_code == 404
 
     # Blank miles should show error
-    assert main.FORMFIELDBLANK.format(field='miles') in runTest(vehicleID=1, miles='')
+    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': ''})
+    assert response.status_code == 200
+    assert response.template.name == 'update_odo_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='miles') in responseErrorMsg
 
     # Non-numeric miles should show error
-    assert main.ODONOTANUMBER in runTest(vehicleID=1, miles='notanumber')
-    assert main.ODONOTANUMBER in runTest(vehicleID=1, miles='123abc')
+    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': 'notanumber'})
+    assert response.status_code == 200
+    assert response.template.name == 'update_odo_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.ODONOTANUMBER in responseErrorMsg
+
+    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '123abc'})
+    assert response.status_code == 200
+    assert response.template.name == 'update_odo_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.ODONOTANUMBER in responseErrorMsg
 
     # Decreasing odometer should show error (vehicle 1 has 110000 miles)
-    assert main.ODODECREASING in runTest(vehicleID=1, miles='50000')
-    assert main.ODODECREASING in runTest(vehicleID=1, miles='0')
+    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '50000'})
+    assert response.status_code == 200
+    assert response.template.name == 'update_odo_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.ODODECREASING in responseErrorMsg
+
+    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '0'})
+    assert response.status_code == 200
+    assert response.template.name == 'update_odo_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.ODODECREASING in responseErrorMsg
 
     # Good inputs should succeed
     # Vehicle 1 has 110000 miles, so we need to go higher
-    assert 0 == runTest(vehicleID=1, miles='115000')
+    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '115000'})
+    assert response.status_code == 200
+    assert response.template.name == 'update_odo_confirmation.html'
+    assert response.context.get('vehicle')
+    assert getVehicleMiles(1) == 115000.0
+
     # Now it's at 115000, go higher again
-    assert 0 == runTest(vehicleID=1, miles='115500.5')
+    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '115500.5'})
+    assert response.status_code == 200
+    assert response.template.name == 'update_odo_confirmation.html'
+    assert getVehicleMiles(1) == 115500.5
 
     # Vehicle 3 has only 10 miles
-    assert 0 == runTest(vehicleID=3, miles='100')
+    response = client.post('/Vehicles/3/Update-Odometer', data={'miles': '100'})
+    assert response.status_code == 200
+    assert response.template.name == 'update_odo_confirmation.html'
+    assert getVehicleMiles(3) == 100.0
 
 
-def test_newServiceUIPOST(client, mocker):
+def test_newServiceUIPOST(client):
     buildSampleDB()
-    spiedVehID = spiedDesc = spiedInterval = spiedErrMsg = None
-
-    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
-        nonlocal spiedVehID, spiedDesc, spiedInterval, spiedErrMsg
-        if context is None:
-            context = {}
-        spiedVehID = context.get('vehicleID')
-        newService = context.get('newService', {})
-        spiedDesc = newService.get('description') if newService else None
-        spiedInterval = newService.get('interval') if newService else None
-        spiedErrMsg = context.get('errorMessage', "")
-        return Response(status_code=200)
-
-    renderMock = mocker.patch('main.templates.TemplateResponse')
-    renderMock.side_effect = mockRenderPage
 
     def checkServiceCreated(vehicleID, description):
+        """Check that service exists in DB."""
         res = main.querySQL(stmt='''
             SELECT itemID FROM serviceSchedule
             WHERE vehicleID = %s AND description = %s
         ''', val=(vehicleID, description))
         return res != []
 
-    def runTest(vehicleID, service):
-        nonlocal spiedVehID, spiedDesc, spiedInterval, spiedErrMsg
-        route = f'/Vehicles/{vehicleID}/New-Service'
-
-        response = client.post(url=route, data=service)
-
-        if response.status_code != 200:
-            return response.status_code
-
-        if spiedErrMsg:
-            msg = spiedErrMsg
-        else:
-            assert spiedDesc == service.get('description')
-            assert checkServiceCreated(vehicleID, service.get('description'))
-            msg = 0
-
-        spiedVehID = spiedDesc = spiedInterval = spiedErrMsg = None
-        return msg
-
     # Invalid vehicle ID should return 404
-    assert 404 == runTest(vehicleID=0, service={'description': 'test', 'interval': '5000', 'milesLastDone': '0'})
-    assert 404 == runTest(vehicleID='blah', service={'description': 'test', 'interval': '5000', 'milesLastDone': '0'})
+    assert client.post('/Vehicles/0/New-Service', data={'description': 'test', 'interval': '5000', 'milesLastDone': '0'}).status_code == 404
+    assert client.post('/Vehicles/blah/New-Service', data={'description': 'test', 'interval': '5000', 'milesLastDone': '0'}).status_code == 404
 
     # Missing/blank description should show error
-    assert main.FORMFIELDBLANK.format(field='description') in runTest(
-        vehicleID=1, service={'description': '', 'interval': '5000', 'milesLastDone': '0'})
+    response = client.post('/Vehicles/1/New-Service', data={'description': '', 'interval': '5000', 'milesLastDone': '0'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='description') in responseErrorMsg
 
     # Missing/blank interval should show error
-    assert main.FORMFIELDBLANK.format(field='interval') in runTest(
-        vehicleID=1, service={'description': 'test service', 'interval': '', 'milesLastDone': '0'})
+    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '', 'milesLastDone': '0'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='interval') in responseErrorMsg
 
     # Non-numeric interval should show error
-    assert main.NOTANUMBER.format(what='interval') in runTest(
-        vehicleID=1, service={'description': 'test service', 'interval': 'notanumber', 'milesLastDone': '0'})
+    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': 'notanumber', 'milesLastDone': '0'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.NOTANUMBER.format(what='interval') in responseErrorMsg
 
-    # Zero or negative interval should show error
-    assert main.NOTANUMBER.format(what='interval') in runTest(
-        vehicleID=1, service={'description': 'test service', 'interval': '0', 'milesLastDone': '0'})
-    assert main.NOTANUMBER.format(what='interval') in runTest(
-        vehicleID=1, service={'description': 'test service', 'interval': '-100', 'milesLastDone': '0'})
+    # Zero interval should show error
+    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '0', 'milesLastDone': '0'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.NOTANUMBER.format(what='interval') in responseErrorMsg
+
+    # Negative interval should show error
+    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '-100', 'milesLastDone': '0'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.NOTANUMBER.format(what='interval') in responseErrorMsg
 
     # Non-numeric milesLastDone should show error
-    assert main.NOTANUMBER.format(what='Miles Last Done') in runTest(
-        vehicleID=1, service={'description': 'test service', 'interval': '5000', 'milesLastDone': 'notanumber'})
+    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '5000', 'milesLastDone': 'notanumber'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.NOTANUMBER.format(what='Miles Last Done') in responseErrorMsg
 
     # Negative milesLastDone should show error
-    assert main.BELOWZERO.format(what='milesLastDone') in runTest(
-        vehicleID=1, service={'description': 'test service', 'interval': '5000', 'milesLastDone': '-100'})
+    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '5000', 'milesLastDone': '-100'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.BELOWZERO.format(what='milesLastDone') in responseErrorMsg
 
     # Good inputs should succeed
-    assert 0 == runTest(vehicleID=1, service={'description': 'New Test Service', 'interval': '5000', 'milesLastDone': '100000'})
-    assert 0 == runTest(vehicleID=1, service={'description': 'Another Service', 'interval': '10000', 'milesLastDone': ''})
-    assert 0 == runTest(vehicleID=2, service={'description': 'Service for veh 2', 'interval': '3000', 'milesLastDone': '50'})
+    response = client.post('/Vehicles/1/New-Service', data={'description': 'New Test Service', 'interval': '5000', 'milesLastDone': '100000'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_submitted.html'
+    newService = response.context.get('newService')
+    assert newService
+    assert newService.get('description') == 'New Test Service'
+    assert checkServiceCreated(1, 'New Test Service')
+
+    response = client.post('/Vehicles/1/New-Service', data={'description': 'Another Service', 'interval': '10000', 'milesLastDone': ''})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_submitted.html'
+    assert checkServiceCreated(1, 'Another Service')
+
+    response = client.post('/Vehicles/2/New-Service', data={'description': 'Service for veh 2', 'interval': '3000', 'milesLastDone': '50'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_submitted.html'
+    assert checkServiceCreated(2, 'Service for veh 2')
 
     # Duplicate description for same vehicle should show error
-    assert main.ILLEGALDUPLICATESERVICE.format(desc='New Test Service') in runTest(
-        vehicleID=1, service={'description': 'New Test Service', 'interval': '5000', 'milesLastDone': '0'})
+    response = client.post('/Vehicles/1/New-Service', data={'description': 'New Test Service', 'interval': '5000', 'milesLastDone': '0'})
+    assert response.status_code == 200
+    assert response.template.name == 'new_service_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.ILLEGALDUPLICATESERVICE.format(desc='New Test Service') in responseErrorMsg
 
 
-def test_UpdateServiceDoneUIPOST(client, mocker):
+
+def test_UpdateServiceDoneUIPOST(client):
     buildSampleDB()
-    spiedItemID = spiedDesc = spiedMilesDoneAt = spiedErrMsg = None
-
-    def mockRenderPage(request=None, templateFile="", context=None, **kwargs):
-        nonlocal spiedItemID, spiedDesc, spiedMilesDoneAt, spiedErrMsg
-        if context is None:
-            context = {}
-        serviceItem = context.get('serviceItem', {})
-        spiedItemID = serviceItem.get('id') if serviceItem else None
-        spiedDesc = serviceItem.get('description') if serviceItem else None
-        spiedMilesDoneAt = serviceItem.get('milesDoneAt') if serviceItem else None
-        spiedErrMsg = context.get('errorMessage', "")
-        return Response(status_code=200)
-
-    renderMock = mocker.patch('main.templates.TemplateResponse')
-    renderMock.side_effect = mockRenderPage
 
     def getServiceFlag(itemID):
+        """Get service due flag from DB."""
         res = main.querySQL(stmt='''
             SELECT servDueFlag FROM serviceSchedule WHERE itemID = %s
         ''', val=(itemID,))
         return res[0][0] if res else None
 
-    def runTest(itemID, miles):
-        nonlocal spiedItemID, spiedDesc, spiedMilesDoneAt, spiedErrMsg
-        route = f'/Service/{itemID}/Update-Service-Done'
-
-        response = client.post(url=route, data={'miles': miles})
-
-        if response.status_code != 200:
-            return response.status_code
-
-        if spiedErrMsg:
-            msg = spiedErrMsg
-        else:
-            # Verify the service flag was cleared
-            assert getServiceFlag(itemID) == 0
-            msg = 0
-
-        spiedItemID = spiedDesc = spiedMilesDoneAt = spiedErrMsg = None
-        return msg
-
     # Invalid service item ID should return 404
-    assert 404 == runTest(itemID=0, miles='100000')
-    assert 404 == runTest(itemID=99999, miles='100000')
-    assert 404 == runTest(itemID='blah', miles='100000')
+    assert client.post('/Service/0/Update-Service-Done', data={'miles': '100000'}).status_code == 404
+    assert client.post('/Service/99999/Update-Service-Done', data={'miles': '100000'}).status_code == 404
+    assert client.post('/Service/blah/Update-Service-Done', data={'miles': '100000'}).status_code == 404
 
     # Blank miles should show error
-    assert main.FORMFIELDBLANK.format(field='miles') in runTest(itemID=1, miles='')
+    response = client.post('/Service/1/Update-Service-Done', data={'miles': ''})
+    assert response.status_code == 200
+    assert response.template.name == 'service_done_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.FORMFIELDBLANK.format(field='miles') in responseErrorMsg
 
     # Non-numeric miles should show error
-    assert main.ODONOTANUMBER in runTest(itemID=1, miles='notanumber')
+    response = client.post('/Service/1/Update-Service-Done', data={'miles': 'notanumber'})
+    assert response.status_code == 200
+    assert response.template.name == 'service_done_form.html'
+    responseErrorMsg = response.context.get('errorMessage')
+    assert responseErrorMsg
+    assert main.ODONOTANUMBER in responseErrorMsg
 
     # Good inputs should succeed
     # Service item 1 is for vehicle 1 which has 110000 miles
-    assert 0 == runTest(itemID=1, miles='112000')
+    response = client.post('/Service/1/Update-Service-Done', data={'miles': '112000'})
+    assert response.status_code == 200
+    assert response.template.name == 'service_done_confirmation.html'
+    serviceItem = response.context.get('serviceItem')
+    assert serviceItem
+    assert getServiceFlag(1) == 0
+
     # Service item 6 is for vehicle 3 which has only 10 miles
-    assert 0 == runTest(itemID=6, miles='15')
+    response = client.post('/Service/6/Update-Service-Done', data={'miles': '15'})
+    assert response.status_code == 200
+    assert response.template.name == 'service_done_confirmation.html'
+    assert getServiceFlag(6) == 0
