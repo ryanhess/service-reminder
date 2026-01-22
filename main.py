@@ -38,11 +38,10 @@ SUCCESSFULODOUPDATESMS = "Successfully updated the odometer"
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# function to get today's date in YYYY-mm-dd
-
 
 def getDateToday():
     return date.today()
+
 
 def getDateTodayStr():
     return getDateToday().strftime('%Y-%m-%d')
