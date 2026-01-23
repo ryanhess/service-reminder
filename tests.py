@@ -51,11 +51,11 @@ def getMaxTheoValueDecimal(tableName="", columnName=""):
         AND column_name = "{columnName}"
         AND data_type = "decimal"
     """)
-    if result == []:
+    if not result.queryResultValues:
         return "Column is not Decimal type"
     else:
-        digitsLeftDecimal = result[0][0] - 1
-        digitsRightDecimal = result[0][1]
+        digitsLeftDecimal = result.queryResultValues[0][0] - 1
+        digitsRightDecimal = result.queryResultValues[0][1]
         return 10 ** digitsLeftDecimal - 10 ** (-1 * digitsRightDecimal)
 
 
@@ -75,9 +75,11 @@ def test_getUserUpdateVehicle(mocker):
     mocker.patch('main.getDateToday', return_value=getSampleToday())
     buildSampleDB()
 
-    users = main.querySQL("""
+    result = main.querySQL("""
         SELECT userID FROM users
     """)
+
+    users = result.queryResultValues
 
     # based on the sample database.
     anticipatedResults = [None, 3, 4, 6, 8, 9]
@@ -235,12 +237,12 @@ def test_updateServiceDone():
             WHERE itemID = {id}
         ''')
 
-        veh, interval, dueAt, flag = res[0]
+        veh, interval, dueAt, flag = res.queryResultValues[0]
 
         res = main.querySQL(f'''
             SELECT miles FROM vehicles
             WHERE vehicleID = {veh}''')
-        parentMiles = float(res[0][0])
+        parentMiles = float(res.queryResultValues[0][0])
 
         assert not flag
         assert float(dueAt) == round(odo, 1) + float(interval)
@@ -535,10 +537,10 @@ def test_receiveOdoMsg(client, mocker):
             WHERE vehicleID = {vehID}
         """)
 
-        if result == []:
+        if not result.queryResultValues:
             raise main.NotInDatabaseError("MOCK: veh not in DB")
 
-        vehODO = result[0][0]
+        vehODO = result.queryResultValues[0][0]
         if vehODO is not None:
             if float(vehODO) > float(newODO):
                 raise ValueError("MOCK: new ODO less than vehicle odo.")
@@ -733,10 +735,10 @@ def test_newUserUIPOST(client):
             ''',
             val=(username,)
         )
-       
-        if res == []:
+
+        if not res.queryResultValues:
             return False
-        return res[0][0] == str(phone)
+        return res.queryResultValues[0][0] == str(phone)
 
     # Test duplicate username error
     response = client.post('/Users/New', data={'username': 'ryanhess', 'phone': '1414144444'})
@@ -778,7 +780,14 @@ def test_newVehicleUIPOST(client):
         res = main.querySQL(stmt='''
             SELECT vehicleID FROM vehicles WHERE vehicleID = %s
         ''', val=(vehID,))
-        return res != []
+        return bool(res.queryResultValues)
+
+    def getVehModel(vehID):
+        """Get the model field from DB for a vehicle."""
+        res = main.querySQL(stmt='''
+            SELECT model FROM vehicles WHERE vehicleID = %s
+        ''', val=(vehID,))
+        return res.queryResultValues[0][0] if res.queryResultValues else None
 
     # Test SQL injection is treated as harmless string
     response = client.post('/Users/2/New-Vehicle', data={
@@ -791,9 +800,10 @@ def test_newVehicleUIPOST(client):
     assert response.status_code == 200
     assert response.template.name == 'new_vehicle_conf.html'
     vehicle = response.context.get('vehicle')
-    assert response.context.get('model') == 'blah; drop table users;'
     assert vehicle
     assert checkVehCreated(vehicle['id'])
+    # Verify the SQL injection string is stored as plain text in the database
+    assert getVehModel(vehicle['id']) == 'blah; drop table users;'
 
     # Test missing year error
     response = client.post('/Users/1/New-Vehicle', data={})
@@ -939,7 +949,7 @@ def test_UpdateODOUIPOST(client):
         res = main.querySQL(stmt='''
             SELECT miles FROM vehicles WHERE vehicleID = %s
         ''', val=(vehicleID,))
-        return float(res[0][0]) if res and res[0][0] else None
+        return float(res.queryResultValues[0][0]) if res.queryResultValues and res.queryResultValues[0][0] else None
 
     # Invalid vehicle ID should return 404
     assert client.post('/Vehicles/0/Update-Odometer', data={'miles': '50000'}).status_code == 404
@@ -1014,7 +1024,7 @@ def test_newServiceUIPOST(client):
             SELECT itemID FROM serviceSchedule
             WHERE vehicleID = %s AND description = %s
         ''', val=(vehicleID, description))
-        return res != []
+        return bool(res.queryResultValues)
 
     # Invalid vehicle ID should return 404
     assert client.post('/Vehicles/0/New-Service', data={'description': 'test', 'interval': '5000', 'milesLastDone': '0'}).status_code == 404
@@ -1113,7 +1123,7 @@ def test_UpdateServiceDoneUIPOST(client):
         res = main.querySQL(stmt='''
             SELECT servDueFlag FROM serviceSchedule WHERE itemID = %s
         ''', val=(itemID,))
-        return res[0][0] if res else None
+        return res.queryResultValues[0][0] if res.queryResultValues else None
 
     # Invalid service item ID should return 404
     assert client.post('/Service/0/Update-Service-Done', data={'miles': '100000'}).status_code == 404
