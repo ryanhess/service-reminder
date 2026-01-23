@@ -115,11 +115,9 @@ def querySQL(stmt="", val="", many=False, connection=None):
 
             result = c1.fetchall()
 
-            # if the statement begins with INSERT (not case sensitive)
-            # get the last inserted primary key to return.
-            # and toss whatever was in the cursor before.
-            if 'INSERT INTO'.lower() in stmt.lower() or \
-                    'UPDATE'.lower() in stmt.lower():
+            # check if the query inserted a row and get its id
+            # (this check only works with current, auto-increment PKs)
+            if c1.lastrowid:
                 result = c1.lastrowid
 
             connection.commit()
