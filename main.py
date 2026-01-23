@@ -1,8 +1,9 @@
 import os
 from decimal import *
 from datetime import date
-# from urllib.parse import parse_qs
+from typing import Any
 from mysql.connector import connect, Error
+from mysql.connector.connection import MySQLConnection
 from fastapi import FastAPI, Request, Form, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -69,11 +70,11 @@ def getMaxTheoValueDecimal(tableName="", columnName=""):
         AND column_name = "{columnName}"
         AND data_type = "decimal"
     """)
-    if result == []:
+    if not result.queryResultValues:
         return "Column is not Decimal type"
     else:
-        digitsLeftDecimal = result[0][0] - 1
-        digitsRightDecimal = result[0][1]
+        digitsLeftDecimal = result.queryResultValues[0][0] - 1
+        digitsRightDecimal = result.queryResultValues[0][1]
         return 10 ** digitsLeftDecimal - 10 ** (-1 * digitsRightDecimal)
 
 ### custom exceptions ###
@@ -93,10 +94,38 @@ class DuplicateItemError(Exception):
     pass
 
 
+class SqlQueryResult():
+    def __init__(self):
+        self.queryResultValues: list | None = None
+        self.insertedRowID: int = 0
+
+
 # function to execute SQL query in a safe container, opening and closing the connection and checking for errors along the way.
 # returns the result of a query if there is one.
-def querySQL(stmt="", val="", many=False, connection=None):
+def querySQL(
+        stmt: str = "",
+        val: Any = None,
+        many: bool = False,
+        connection: MySQLConnection | None = None
+) -> SqlQueryResult:
+    """
+    Executes a MYSQL query given by the string.
+    
+    :param stmt: SQL query string
+    :param val: values to insert using placeholders
+    :param many: (False by default) the query many times for the array of values array of values
+    :param connection: (None by default) a MySQLConnection object to use for the query. Created if not specified.
+    
+    :returns:
+        a dictionary with the returned data as a list and the inserted row id, or zero if no row was inserted.
+        If no results are returned by the query, the returned data is None.
+    
+    :raises: Exception if the query throws an error in MySQL.
+    """
+    
     try:
+        queryResult = SqlQueryResult()
+
         if connection is None:
             connection = connect(
                 host="localhost",
@@ -113,18 +142,17 @@ def querySQL(stmt="", val="", many=False, connection=None):
             else:
                 c1.execute(stmt, val)
 
-            result = c1.fetchall()
+            queryResult.queryResultValues = c1.fetchall()
 
             # check if the query inserted a row and get its id
             # (this check only works with current, auto-increment PKs)
             if c1.lastrowid:
-                result = c1.lastrowid
+                queryResult.insertedRowID = c1.lastrowid
 
             connection.commit()
 
-            return result
+            return queryResult
     except Error as e:
-        # breakpoint()
         raise Exception(e)
 
 
@@ -150,8 +178,8 @@ def getUserUpdateVehicle(userID):
         LIMIT 1
     ''')
 
-    if result != []:
-        return result[0][0]
+    if result.queryResultValues:
+        return result.queryResultValues[0][0]
     else:
         result = querySQL(f'''
             SELECT vehicleID FROM vehicles
@@ -160,10 +188,10 @@ def getUserUpdateVehicle(userID):
             ORDER BY dateLastODO ASC
             LIMIT 1
         ''')
-        if result == []:
+        if not result.queryResultValues:
             return None
         else:
-            return result[0][0]
+            return result.queryResultValues[0][0]
 
 
 def promptUserForOneVeh(usrID=0):
@@ -177,14 +205,14 @@ def promptUserForOneVeh(usrID=0):
             WHERE vehicleID = {vehID}
     ''')
 
-    displayName = queryResult[0]
+    displayName = queryResult.queryResultValues[0]
 
     # we need the user name and the phone number from the user.
     queryResult = querySQL(stmt=f'''
         SELECT username, phone FROM users
         WHERE userID = {usrID}
     ''')
-    (username, phone) = queryResult[0]
+    (username, phone) = queryResult.queryResultValues[0]
 
     msg = f"""Hey {username}, Service Reminders here. Please reply with an odometer reading for {displayName}."""
 
@@ -210,10 +238,10 @@ def updateODO(vehID=0, newODO=0):
         WHERE vehicleID = %s
     ''', val=(vehID, ))
 
-    if res == []:
+    if not res.queryResultValues:
         raise NotInDatabaseError(NOTINDB.format(type='vehicle', id=vehID))
 
-    curMiles, curOdoDate, curMilesPerDay = res[0]
+    curMiles, curOdoDate, curMilesPerDay = res.queryResultValues[0]
 
     # In updateODO we want to detect if current odo is None. We need to make a sepcial case.
     # and take a sepcial default action that doesn't blow up the mileage estimates.
@@ -272,15 +300,15 @@ def updateServiceDone(itemID: int, itemODO: float):
         SELECT serviceInterval, milesLastDone FROM serviceSchedule
         WHERE itemID = %s
     ''', val=(itemID, ))
-    if res == []:
+    if not res.queryResultValues:
         raise NotInDatabaseError(NOTINDB)
-    interval, lastMiles = res[0]
+    interval, lastMiles = res.queryResultValues[0]
 
     res = querySQL(f"""
         SELECT vehicleID, miles FROM vehicles
         WHERE vehicles.vehicleID = (SELECT vehicleID FROM serviceSchedule WHERE serviceSchedule.itemID = {itemID})
     """)
-    vehID, parentMiles = res[0]
+    vehID, parentMiles = res.queryResultValues[0]
 
     # check for not the right type
     try:
@@ -318,22 +346,22 @@ def notifyOneService(serviceItemID):
         WHERE itemID = %s
     ''', val=(serviceItemID, ))
 
-    if res == []:
+    if not res.queryResultValues:
         raise NotInDatabaseError(NOTINDB.format(type='service', id=serviceItemID))
-    usrID, vehID, desc, dueAt = res[0]
+    usrID, vehID, desc, dueAt = res.queryResultValues[0]
 
     res = querySQL(stmt=f"""
         SELECT username, phone FROM users
         WHERE userID = {usrID}
     """)
-    username, phone = res[0]
+    username, phone = res.queryResultValues[0]
 
     res = querySQL(stmt=f"""
         SELECT displayName FROM vehicles
         WHERE vehicleID = {vehID}
     """)
 
-    displayName = res[0][0]
+    displayName = res.queryResultValues[0][0]
 
     msg = SERVICENOTIFICATION.format(username=username, 
         displayName=displayName, desc=desc, dueAt=dueAt)
@@ -354,13 +382,13 @@ def notifyAllService():
     # get the ymm and nick of the vehicle in the item
     # get the username and phone number of the user
     # {username}, your {ymm}/{nick} is due for {item} at {x} miles.
-    for item in flaggedItems:
+    for item in flaggedItems.queryResultValues:
         phone, msg = notifyOneService(item[0])
 
         # send the message.
         sendSMS(recip=phone, msg=msg)
 
-    return flaggedItems
+    return flaggedItems.queryResultValues
 
 
 # def:
@@ -374,7 +402,7 @@ def dailyMaint():
     """
     queryResult = querySQL(stmt=query)
     # sort the list by userID, then by dateLastODO oldest to newest. This ensures that the highest priority is to query the most out of date vehicle.
-    for usr in queryResult:
+    for usr in queryResult.queryResultValues:
         phone, msg = promptUserForOneVeh(usr[0])
         sendSMS(recip=phone, msg=msg)
 
@@ -427,10 +455,10 @@ def receiveOdoMsg(From: str = Form(...), Body: str = Form(...)):
             SELECT userID FROM users
             WHERE phone = %s
         """, val=(phone,))
-        if res == []:
+        if not res.queryResultValues:
             raise NotInDatabaseError(NOTINDB.format(type='user', id=phone))
 
-        userID = res[0][0]
+        userID = res.queryResultValues[0][0]
 
         vehID = getUserUpdateVehicle(userID)
 
@@ -471,7 +499,7 @@ def receiveOdoMsg(From: str = Form(...), Body: str = Form(...)):
             """,
             val=(vehID,)
         )
-        displayName = res[0][0]
+        displayName = res.queryResultValues[0][0]
         resp.message(SUCCESSFULODOUPDATESMS + f' for {displayName}')
 
     return Response(content=str(resp), media_type='text/xml')
@@ -489,14 +517,14 @@ def handleNewUserPOST(username: str, phone: str):
         SELECT userID FROM users
         WHERE username = %s
     ''', val=(username,))
-    if res != []:
+    if res.queryResultValues:
         raise DuplicateItemError(ILLEGALDUPLICATE.format(param='username'))
 
     res = querySQL('''
         SELECT userID FROM users
         WHERE phone = %s
     ''', val=(phone,))
-    if res != []:
+    if res.queryResultValues:
         raise DuplicateItemError(ILLEGALDUPLICATE.format(param='phone'))
 
     # finally, with the cleaned and validated data, add it to the database and return the cleaned data.
@@ -504,7 +532,7 @@ def handleNewUserPOST(username: str, phone: str):
         newUserID = querySQL(stmt='''
             INSERT INTO users (username, phone)
             VALUES (%s, %s)
-        ''', val=(username, phone))
+        ''', val=(username, phone)).insertedRowID
     except Exception as e:
         # DEBUG
         raise e
@@ -524,7 +552,7 @@ def validateUserIdInURL(userID):
         SELECT userID FROM users
         WHERE userID = %s
     ''', val=(userID,))
-    if res == []:
+    if not res.queryResultValues:
         raise NotInDatabaseError(NOTINDB.format(user=userID))
 
     return userID
@@ -542,7 +570,7 @@ def validateVehIdInURL(vehID):
         SELECT vehicleID FROM vehicles
         WHERE vehicleID = %s
     ''', val=(vehID,))
-    if res == []:
+    if not res.queryResultValues:
         raise NotInDatabaseError(NOTINDB.format(type='vehicle', id=vehID))
 
     return vehID
@@ -557,7 +585,7 @@ def validateItemIdInURL(itemID: int):
         SELECT itemID FROM serviceSchedule
         WHERE itemID = %s
     ''', val=(itemID, ))
-    if res == []:
+    if not res.queryResultValues:
         raise NotInDatabaseError(NOTINDB.format(type='service item', id=itemID))
     
     return itemID
@@ -588,7 +616,7 @@ def handleNewVehiclePOST(userID, nick: str, year: str, make: str, model: str, mi
     res = querySQL('''
         SELECT CAST(%s AS YEAR)
     ''', val=(year, ))
-    if not res[0][0]:
+    if not res.queryResultValues[0][0]:
         raise FormInputError(INVALIDPARAM.format(param='year'))
 
     # make
@@ -604,14 +632,14 @@ def handleNewVehiclePOST(userID, nick: str, year: str, make: str, model: str, mi
         (userID, vehNickname, make, model, year)
         VALUES (%s, %s, %s, %s, %s)
     ''', val=(userID, nick, make, model, year))
-    newVehID = result
+    newVehID = result.insertedRowID
 
     result = querySQL(stmt=f'''
         SELECT displayName FROM vehicles
         WHERE vehicleID = {newVehID}
     ''')
 
-    dispName = result[0][0]
+    dispName = result.queryResultValues[0][0]
 
     # now try to add the odometer reading if provided
     if len(miles) > 0:
@@ -683,14 +711,14 @@ def handleNewServicePOST(vehicleID: int, description: str, interval: str, milesL
     ''', val=(description, vehicleID))
 
     # if there is more than an empty array in the result,
-    if result != []:
+    if result.queryResultValues:
         raise DuplicateItemError(ILLEGALDUPLICATESERVICE.format(desc=description))
 
     result = querySQL(stmt='''
         SELECT userID FROM vehicles
         WHERE vehicleID = %s
     ''', val=(vehicleID, ))
-    userID = result[0][0]
+    userID = result.queryResultValues[0][0]
 
     result = querySQL(stmt='''
         INSERT INTO serviceSchedule
@@ -773,7 +801,7 @@ def serveUsersList(request: Request):
     res = querySQL('SELECT userID, username FROM users')
     users = []
 
-    for item in res:
+    for item in res.queryResultValues:
         user = {'userID': item[0], 'username': item[1]}
         users.append(user)
 
@@ -823,7 +851,7 @@ def serveSingleUserPage(request: Request, userID: str):
         SELECT username FROM users
         WHERE userID = %s
     ''', val=(userID, ))
-    username = res[0][0]
+    username = res.queryResultValues[0][0]
 
     res = querySQL('''
         SELECT vehicleID, vehNickname, make,
@@ -833,7 +861,7 @@ def serveSingleUserPage(request: Request, userID: str):
     ''', val=(userID, ))
     vehicles = []
 
-    for item in res:
+    for item in res.queryResultValues:
         veh = {
             'id': item[0],
             'nick': item[1],
@@ -865,7 +893,7 @@ def serveSingleVehiclePage(request: Request, vehicleID: str):
         FROM vehicles
         WHERE vehicleID = {vehicleID}
     ''')
-    res = res[0]
+    res = res.queryResultValues[0]
     vehicle = {
         'id': res[0],
         'displayName': res[1],
@@ -881,7 +909,7 @@ def serveSingleVehiclePage(request: Request, vehicleID: str):
     ''')
 
     serviceSched = []
-    for result in res:
+    for result in res.queryResultValues:
         serviceSched.append({
             'id': result[0],
             'description': result[1],
@@ -904,7 +932,7 @@ def newVehicleUIGet(request: Request, userID: str):
         SELECT userID, username FROM users
         WHERE userID = %s
     ''', val=(userID,))
-    user = {'id': res[0][0], 'username': res[0][1]}
+    user = {'id': res.queryResultValues[0][0], 'username': res.queryResultValues[0][1]}
 
     return templates.TemplateResponse(request, newVehForm, {"user": user})
 
@@ -930,7 +958,7 @@ def newVehicleUIPost(
         SELECT userID, username FROM users
         WHERE userID = %s
     ''', val=(userID,))
-    user = {'id': res[0][0], 'username': res[0][1]}
+    user = {'id': res.queryResultValues[0][0], 'username': res.queryResultValues[0][1]}
 
     try:
         vehicle = handleNewVehiclePOST(userID, nickname, year, make, model, miles)
@@ -996,7 +1024,7 @@ def updateOdoUIGet(request: Request, vehicleID: str):
         SELECT vehicleID, displayName, miles FROM vehicles
         WHERE vehicleID = %s
     ''', val=(vehicleID, ))
-    vehicle = {'id': res[0][0], 'displayName': res[0][1], 'miles': res[0][2]}
+    vehicle = {'id': res.queryResultValues[0][0], 'displayName': res.queryResultValues[0][1], 'miles': res.queryResultValues[0][2]}
 
     return templates.TemplateResponse(request, updateODOForm, {"vehicle": vehicle})
 
@@ -1014,7 +1042,7 @@ def updateOdoUIPost(request: Request, vehicleID: str, miles: str = Form("")):
         SELECT vehicleID, displayName, miles FROM vehicles
         WHERE vehicleID = %s
     ''', val=(vehicleID, ))
-    vehicle = {'id': res[0][0], 'displayName': res[0][1], 'miles': res[0][2]}
+    vehicle = {'id': res.queryResultValues[0][0], 'displayName': res.queryResultValues[0][1], 'miles': res.queryResultValues[0][2]}
 
     try:
         vehicle['miles'] = handleUpdateOdoPOST(vehicleID, miles)
@@ -1041,9 +1069,9 @@ def updateServiceDoneUIGet(request: Request, itemID: str):
         SELECT itemID, vehicleID, description FROM serviceSchedule
         WHERE itemID = %s
     ''', val=(itemID, ))
-    serviceItem = {'id': res[0][0],
-                   'vehicleID': res[0][1],
-                   'description': res[0][2],
+    serviceItem = {'id': res.queryResultValues[0][0],
+                   'vehicleID': res.queryResultValues[0][1],
+                   'description': res.queryResultValues[0][2],
                    'milesDoneAt': 0}
 
     return templates.TemplateResponse(request, servDoneForm, {"serviceItem": serviceItem})
@@ -1062,9 +1090,9 @@ def updateServiceDoneUIPost(request: Request, itemID: str, miles: str = Form("")
         SELECT itemID, vehicleID, description FROM serviceSchedule
         WHERE itemID = %s
     ''', val=(itemID, ))
-    serviceItem = {'id': res[0][0],
-                   'vehicleID': res[0][1],
-                   'description': res[0][2],
+    serviceItem = {'id': res.queryResultValues[0][0],
+                   'vehicleID': res.queryResultValues[0][1],
+                   'description': res.queryResultValues[0][2],
                    'milesDoneAt': 0}
 
     try:
