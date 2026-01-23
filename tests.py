@@ -773,7 +773,6 @@ def test_newUserUIPOST(client):
     assert checkUserInDB('###fsf23', '+14838812931')
 
 
-
 def test_newVehicleUIPOST(client):
     def checkVehCreated(vehID):
         """Check that vehicle exists in DB."""
@@ -939,7 +938,6 @@ def test_newVehicleUIPOST(client):
     assert vehicle['displayName'] == 'nickname'
     assert vehicle['miles'] == '1000'
     
-
 
 def test_UpdateODOUIPOST(client):
     buildSampleDB()
@@ -1112,7 +1110,6 @@ def test_newServiceUIPOST(client):
     responseErrorMsg = response.context.get('errorMessage')
     assert responseErrorMsg
     assert main.ILLEGALDUPLICATESERVICE.format(desc='New Test Service') in responseErrorMsg
-
 
 
 def test_UpdateServiceDoneUIPOST(client):
