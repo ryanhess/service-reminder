@@ -79,10 +79,12 @@ def test_getUserUpdateVehicle(mocker):
         SELECT userID FROM users
     """)
 
+    users = result.queryResultValues
+
     # based on the sample database.
     anticipatedResults = [None, 3, 4, 6, 8, 9]
 
-    for (user, result) in zip(result.queryResultValues, anticipatedResults):
+    for (user, result) in zip(users, anticipatedResults):
         funcResult = main.getUserUpdateVehicle(user[0])
         print(funcResult)
         assert result == funcResult
@@ -780,6 +782,13 @@ def test_newVehicleUIPOST(client):
         ''', val=(vehID,))
         return bool(res.queryResultValues)
 
+    def getVehModel(vehID):
+        """Get the model field from DB for a vehicle."""
+        res = main.querySQL(stmt='''
+            SELECT model FROM vehicles WHERE vehicleID = %s
+        ''', val=(vehID,))
+        return res.queryResultValues[0][0] if res.queryResultValues else None
+
     # Test SQL injection is treated as harmless string
     response = client.post('/Users/2/New-Vehicle', data={
         'nickname': 'hello; drop table users;',
@@ -791,9 +800,10 @@ def test_newVehicleUIPOST(client):
     assert response.status_code == 200
     assert response.template.name == 'new_vehicle_conf.html'
     vehicle = response.context.get('vehicle')
-    assert response.context.get('model') == 'blah; drop table users;'
     assert vehicle
     assert checkVehCreated(vehicle['id'])
+    # Verify the SQL injection string is stored as plain text in the database
+    assert getVehModel(vehicle['id']) == 'blah; drop table users;'
 
     # Test missing year error
     response = client.post('/Users/1/New-Vehicle', data={})
