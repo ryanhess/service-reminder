@@ -95,14 +95,17 @@ class DuplicateItemError(Exception):
 
 # function to execute SQL query in a safe container, opening and closing the connection and checking for errors along the way.
 # returns the result of a query if there is one.
-def querySQL(stmt="", val="", many=False):
+def querySQL(stmt="", val="", many=False, connection=None):
     try:
-        with connect(
-            host="localhost",
-            user="serv-rem-dev",
-            password="password",
-            database="service_reminders_app"
-        ) as connection:
+        if connection is None:
+            connection = connect(
+                host="localhost",
+                user="serv-rem-dev",
+                password="password",
+                database="service_reminders_app"
+            )
+
+        with connection:
             c1 = connection.cursor()
 
             if many:
