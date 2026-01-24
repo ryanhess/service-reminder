@@ -1174,14 +1174,12 @@ class TestQuerySQL:
         mock_conn._mock_cursor = mock_cursor
         return mock_conn
 
-    def test_calls_execute_with_stmt(self, mock_connection):
-        """querySQL should call cursor.execute with the statement."""
+    def test_callsCursorExecuteWithCorrectStmt(self, mock_connection):
         main.querySQL(stmt="SELECT * FROM users", connection=mock_connection)
 
         mock_connection._mock_cursor.execute.assert_called_once_with("SELECT * FROM users", None)
 
-    def test_calls_execute_with_val(self, mock_connection):
-        """querySQL should pass val to cursor.execute."""
+    def test_callsCusorExecuteWithCorrectVal(self, mock_connection):
         main.querySQL(
             stmt="SELECT * FROM users WHERE id = %s",
             val=(1,),
@@ -1192,8 +1190,7 @@ class TestQuerySQL:
             "SELECT * FROM users WHERE id = %s", (1,)
         )
 
-    def test_calls_executemany_when_many_true(self, mock_connection):
-        """querySQL should call executemany when many=True."""
+    def test_callsCursorExecuteManyWhenManyIsTrue(self, mock_connection):
         vals = [("user1",), ("user2",)]
 
         main.querySQL(
@@ -1208,16 +1205,14 @@ class TestQuerySQL:
         )
         mock_connection._mock_cursor.execute.assert_not_called()
 
-    def test_returns_fetchall_results(self, mock_connection):
-        """querySQL should return fetchall results in queryResultValues."""
+    def test_returnsCursorFetchallResultAsList(self, mock_connection):
         mock_connection._mock_cursor.fetchall.return_value = [(1, "ryan"), (2, "brian")]
 
         result = main.querySQL(stmt="SELECT * FROM users", connection=mock_connection)
 
         assert result.queryResultValues == [(1, "ryan"), (2, "brian")]
 
-    def test_sets_insertedRowID_from_lastrowid(self, mock_connection):
-        """querySQL should set insertedRowID when lastrowid is set."""
+    def test_setsInsertedRowIdCorrectly(self, mock_connection):
         mock_connection._mock_cursor.lastrowid = 42
 
         result = main.querySQL(
@@ -1228,8 +1223,7 @@ class TestQuerySQL:
 
         assert result.insertedRowID == 42
 
-    def test_insertedRowID_zero_when_no_insert(self, mock_connection):
-        """querySQL should have insertedRowID=0 when lastrowid is 0."""
+    def test_setsInsertedRowIdToZeroWhenNotInserting(self, mock_connection):
         mock_connection._mock_cursor.fetchall.return_value = [(1,)]
         mock_connection._mock_cursor.lastrowid = 0
 
@@ -1237,8 +1231,7 @@ class TestQuerySQL:
 
         assert result.insertedRowID == 0
 
-    def test_commits_connection(self, mock_connection):
-        """querySQL should commit the connection."""
+    def test_callsConnectionCommit(self, mock_connection):
         main.querySQL(
             stmt="INSERT INTO users (name) VALUES (%s)",
             val=("test",),
@@ -1247,15 +1240,13 @@ class TestQuerySQL:
 
         mock_connection.commit.assert_called_once()
 
-    def test_raises_exception_on_error(self, mock_connection):
-        """querySQL should raise Exception when cursor raises an Error."""
+    def test_raisesWhenCursorRaisesError(self, mock_connection):
         mock_connection._mock_cursor.execute.side_effect = Error("Database error")
 
         with raises(Exception):
             main.querySQL(stmt="SELECT 1", connection=mock_connection)
 
-    def test_returns_SqlQueryResult_type(self, mock_connection):
-        """querySQL should return a SqlQueryResult object."""
+    def test_returnsSqlQueryResultObject(self, mock_connection):
         result = main.querySQL(stmt="SELECT 1", connection=mock_connection)
 
         assert isinstance(result, main.SqlQueryResult)
