@@ -575,7 +575,7 @@ def validateVehIdInURL(vehID):
 
     return vehID
 
-def validateItemIdInURL(itemID: int):
+def validateServiceItemIdInUrl(itemID: int):
     try:
         itemID = int(itemID)
     except ValueError:
@@ -759,7 +759,7 @@ def handleUpdateServDonePOST(itemID: int, miles: str):
     print(f"handleUpdateServDonePOST called with itemID={itemID}, miles={miles}")
 
     try:
-        itemID = validateItemIdInURL(itemID)
+        itemID = validateServiceItemIdInUrl(itemID)
     except Exception as e:
         raise e
 
@@ -1061,7 +1061,7 @@ def updateOdoUIPost(request: Request, vehicleID: str, miles: str = Form("")):
 def updateServiceDoneUIGet(request: Request, itemID: str):
     servDoneForm = 'service_done_form.html'
     try:
-        itemID = validateItemIdInURL(itemID)
+        itemID = validateServiceItemIdInUrl(itemID)
     except:
         return Response(status_code=404)
 
@@ -1082,7 +1082,7 @@ def updateServiceDoneUIPost(request: Request, itemID: str, miles: str = Form("")
     servDoneForm = 'service_done_form.html'
     servDoneConf = 'service_done_confirmation.html'
     try:
-        itemID = validateItemIdInURL(itemID)
+        itemID = validateServiceItemIdInUrl(itemID)
     except:
         return Response(status_code=404)
 
