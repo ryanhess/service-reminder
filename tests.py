@@ -1403,14 +1403,14 @@ class TestValidateVehIdInURL:
         assert call_kwargs['val'] == (7,)
 
 
-class TestValidateServiceItemIdInUrl:
+class TestValidateItemIdInURL:
 
     def test_returnsIntWhenGivenValidStringId(self, mocker):
         mock_result = mocker.MagicMock()
         mock_result.queryResultValues = [(1,)]
         mocker.patch('main.querySQL', return_value=mock_result)
 
-        result = main.validateServiceItemIdInUrl('1')
+        result = main.validateItemIdInURL('1')
 
         assert result == 1
         assert isinstance(result, int)
@@ -1420,21 +1420,21 @@ class TestValidateServiceItemIdInUrl:
         mock_result.queryResultValues = [(25,)]
         mocker.patch('main.querySQL', return_value=mock_result)
 
-        result = main.validateServiceItemIdInUrl(25)
+        result = main.validateItemIdInURL(25)
 
         assert result == 25
 
     def test_raisesValueErrorWhenGivenNonNumericString(self, mocker):
         with raises(ValueError):
-            main.validateServiceItemIdInUrl('notanumber')
+            main.validateItemIdInURL('notanumber')
 
     def test_raisesValueErrorWhenGivenEmptyString(self, mocker):
         with raises(ValueError):
-            main.validateServiceItemIdInUrl('')
+            main.validateItemIdInURL('')
 
     def test_raisesValueErrorWhenGivenFloatString(self, mocker):
         with raises(ValueError):
-            main.validateServiceItemIdInUrl('2.5')
+            main.validateItemIdInURL('2.5')
 
     def test_raisesNotInDatabaseErrorWhenItemNotFound(self, mocker):
         mock_result = mocker.MagicMock()
@@ -1442,14 +1442,14 @@ class TestValidateServiceItemIdInUrl:
         mocker.patch('main.querySQL', return_value=mock_result)
 
         with raises(main.NotInDatabaseError):
-            main.validateServiceItemIdInUrl('999')
+            main.validateItemIdInURL('999')
 
     def test_queriesDatabaseWithCorrectItemId(self, mocker):
         mock_result = mocker.MagicMock()
         mock_result.queryResultValues = [(15,)]
         mock_query = mocker.patch('main.querySQL', return_value=mock_result)
 
-        main.validateServiceItemIdInUrl('15')
+        main.validateItemIdInURL('15')
 
         call_kwargs = mock_query.call_args[1]
         assert call_kwargs['val'] == (15,)
