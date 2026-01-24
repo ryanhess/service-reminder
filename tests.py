@@ -1160,11 +1160,9 @@ def test_UpdateServiceDoneUIPOST(client):
 
 
 class TestQuerySQL:
-    """Unit tests for the querySQL function."""
 
     @fixture
     def mock_connection(self, mocker):
-        """Provides a mock MySQL connection with cursor."""
         mock_cursor = mocker.MagicMock()
         mock_cursor.fetchall.return_value = []
         mock_cursor.lastrowid = 0
