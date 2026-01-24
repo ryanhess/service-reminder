@@ -1157,3 +1157,105 @@ def test_UpdateServiceDoneUIPOST(client):
     assert response.status_code == 200
     assert response.template.name == 'service_done_confirmation.html'
     assert getServiceFlag(6) == 0
+
+
+class TestQuerySQL:
+    """Unit tests for the querySQL function."""
+
+    @fixture
+    def mock_connection(self, mocker):
+        """Provides a mock MySQL connection with cursor."""
+        mock_cursor = mocker.MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_cursor.lastrowid = 0
+
+        mock_conn = mocker.MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn._mock_cursor = mock_cursor
+        return mock_conn
+
+    def test_calls_execute_with_stmt(self, mock_connection):
+        """querySQL should call cursor.execute with the statement."""
+        main.querySQL(stmt="SELECT * FROM users", connection=mock_connection)
+
+        mock_connection._mock_cursor.execute.assert_called_once_with("SELECT * FROM users", None)
+
+    def test_calls_execute_with_val(self, mock_connection):
+        """querySQL should pass val to cursor.execute."""
+        main.querySQL(
+            stmt="SELECT * FROM users WHERE id = %s",
+            val=(1,),
+            connection=mock_connection
+        )
+
+        mock_connection._mock_cursor.execute.assert_called_once_with(
+            "SELECT * FROM users WHERE id = %s", (1,)
+        )
+
+    def test_calls_executemany_when_many_true(self, mock_connection):
+        """querySQL should call executemany when many=True."""
+        vals = [("user1",), ("user2",)]
+
+        main.querySQL(
+            stmt="INSERT INTO users (name) VALUES (%s)",
+            val=vals,
+            many=True,
+            connection=mock_connection
+        )
+
+        mock_connection._mock_cursor.executemany.assert_called_once_with(
+            "INSERT INTO users (name) VALUES (%s)", vals
+        )
+        mock_connection._mock_cursor.execute.assert_not_called()
+
+    def test_returns_fetchall_results(self, mock_connection):
+        """querySQL should return fetchall results in queryResultValues."""
+        mock_connection._mock_cursor.fetchall.return_value = [(1, "ryan"), (2, "brian")]
+
+        result = main.querySQL(stmt="SELECT * FROM users", connection=mock_connection)
+
+        assert result.queryResultValues == [(1, "ryan"), (2, "brian")]
+
+    def test_sets_insertedRowID_from_lastrowid(self, mock_connection):
+        """querySQL should set insertedRowID when lastrowid is set."""
+        mock_connection._mock_cursor.lastrowid = 42
+
+        result = main.querySQL(
+            stmt="INSERT INTO users (name) VALUES (%s)",
+            val=("test",),
+            connection=mock_connection
+        )
+
+        assert result.insertedRowID == 42
+
+    def test_insertedRowID_zero_when_no_insert(self, mock_connection):
+        """querySQL should have insertedRowID=0 when lastrowid is 0."""
+        mock_connection._mock_cursor.fetchall.return_value = [(1,)]
+        mock_connection._mock_cursor.lastrowid = 0
+
+        result = main.querySQL(stmt="SELECT * FROM users", connection=mock_connection)
+
+        assert result.insertedRowID == 0
+
+    def test_commits_connection(self, mock_connection):
+        """querySQL should commit the connection."""
+        main.querySQL(
+            stmt="INSERT INTO users (name) VALUES (%s)",
+            val=("test",),
+            connection=mock_connection
+        )
+
+        mock_connection.commit.assert_called_once()
+
+    def test_raises_exception_on_error(self, mock_connection):
+        """querySQL should raise Exception when cursor raises an Error."""
+        mock_connection._mock_cursor.execute.side_effect = Error("Database error")
+
+        with raises(Exception):
+            main.querySQL(stmt="SELECT 1", connection=mock_connection)
+
+    def test_returns_SqlQueryResult_type(self, mock_connection):
+        """querySQL should return a SqlQueryResult object."""
+        result = main.querySQL(stmt="SELECT 1", connection=mock_connection)
+
+        assert isinstance(result, main.SqlQueryResult)
