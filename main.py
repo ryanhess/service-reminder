@@ -62,14 +62,14 @@ def strIsFloat(str=""):
 # if the data type is a decimal. (flesh this out later to more data types
 # if it serves a purpose.)
 def getMaxTheoValueDecimal(tableName="", columnName=""):
-    result = querySQL(f"""
+    result = querySQL("""
         SELECT numeric_precision, numeric_scale
         FROM information_schema.columns
         WHERE table_schema = "service_reminders_app"
-        AND table_name = "{tableName}"
-        AND column_name = "{columnName}"
+        AND table_name = %s
+        AND column_name = %s
         AND data_type = "decimal"
-    """)
+    """, val=(tableName, columnName))
     if not result.queryResultValues:
         return "Column is not Decimal type"
     else:
