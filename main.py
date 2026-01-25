@@ -7,7 +7,7 @@ from mysql.connector.connection import MySQLConnection
 from fastapi import FastAPI, Request, Form, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from twilio.rest import Client
+from twilio.rest import Client as TwilioClient
 from twilio.twiml.messaging_response import MessagingResponse
 # import DB_Builder
 import traceback
@@ -48,7 +48,7 @@ def getDateTodayStr():
     return getDateToday().strftime('%Y-%m-%d')
 
 
-def strIsFloat(str=""):
+def strIsNumber(str: str):
     try:
         float(str)
     except ValueError:
@@ -62,14 +62,14 @@ def strIsFloat(str=""):
 # if the data type is a decimal. (flesh this out later to more data types
 # if it serves a purpose.)
 def getMaxTheoValueDecimal(tableName="", columnName=""):
-    result = querySQL(f"""
+    result = querySQL("""
         SELECT numeric_precision, numeric_scale
         FROM information_schema.columns
         WHERE table_schema = "service_reminders_app"
-        AND table_name = "{tableName}"
-        AND column_name = "{columnName}"
+        AND table_name = %s
+        AND column_name = %s
         AND data_type = "decimal"
-    """)
+    """, val=(tableName, columnName))
     if not result.queryResultValues:
         return "Column is not Decimal type"
     else:
@@ -159,7 +159,7 @@ def querySQL(
 def sendSMS(recip="", msg=""):
     account_sid = os.environ["TWILIO_ACCOUNT_SID"]
     auth_token = os.environ["TWILIO_AUTH_TOKEN"]
-    client = Client(account_sid, auth_token)
+    client = TwilioClient(account_sid, auth_token)
 
     message = client.messages.create(
         body=msg,
@@ -474,7 +474,7 @@ def receiveOdoMsg(From: str = Form(...), Body: str = Form(...)):
     else:
         if not vehID:
             errStr = NOELIGIBLEVEHICLESMS
-        elif not strIsFloat(odo):
+        elif not strIsNumber(odo):
             errStr = ODONOTANUMBER
         elif float(odo) < 0:
             errStr = ODOBELOWZERO

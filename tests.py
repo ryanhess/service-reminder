@@ -1159,6 +1159,199 @@ def test_UpdateServiceDoneUIPOST(client):
     assert getServiceFlag(6) == 0
 
 
+class TestGetDateTodayStr:
+
+    def test_returnsStringNotDateObject(self, mocker):
+        mock_date = date(2025, 1, 1)
+        mocker.patch('main.getDateToday', return_value=mock_date)
+
+        result = main.getDateTodayStr()
+
+        assert isinstance(result, str)
+
+    def test_padsMonthWithLeadingZero(self, mocker):
+        mock_date = date(2025, 3, 15)
+        mocker.patch('main.getDateToday', return_value=mock_date)
+
+        result = main.getDateTodayStr()
+
+        assert result == '2025-03-15'
+
+    def test_padsDayWithLeadingZero(self, mocker):
+        mock_date = date(2025, 12, 5)
+        mocker.patch('main.getDateToday', return_value=mock_date)
+
+        result = main.getDateTodayStr()
+
+        assert result == '2025-12-05'
+
+    def test_returnsStringInCorrectFormat(self, mocker):
+        mock_date = date(2025, 9, 15)
+        mocker.patch('main.getDateToday', return_value=mock_date)
+
+        result = main.getDateTodayStr()
+
+        assert result == '2025-09-15'
+
+    def test_callsGetDateToday(self, mocker):
+        mock_get_date = mocker.patch('main.getDateToday', return_value=date(2025, 1, 1))
+
+        main.getDateTodayStr()
+
+        mock_get_date.assert_called_once()
+
+
+class TestStrIsNumber:
+
+    def test_returnsTrueForInteger(self):
+        assert main.strIsNumber("123") is True
+
+    def test_returnsTrueForFloat(self):
+        assert main.strIsNumber("123.456") is True
+
+    def test_returnsTrueForNegativeNumber(self):
+        assert main.strIsNumber("-123.456") is True
+
+    def test_returnsTrueForZero(self):
+        assert main.strIsNumber("0") is True
+
+    def test_returnsTrueForScientificNotation(self):
+        assert main.strIsNumber("1.23e10") is True
+
+    def test_returnsFalseForAlphabeticString(self):
+        assert main.strIsNumber("abc") is False
+
+    def test_returnsFalseForMixedAlphanumeric(self):
+        assert main.strIsNumber("123abc") is False
+
+    def test_returnsFalseForEmptyString(self):
+        assert main.strIsNumber("") is False
+
+    def test_returnsFalseForWhitespaceOnly(self):
+        assert main.strIsNumber("   ") is False
+
+    def test_returnsFalseForSpecialCharacters(self):
+        assert main.strIsNumber("!@#$%") is False
+
+    def test_returnsTrueForStringWithLeadingWhitespace(self):
+        # Python's float() accepts leading/trailing whitespace
+        assert main.strIsNumber("  123.45") is True
+
+    def test_returnsTrueForStringWithTrailingWhitespace(self):
+        assert main.strIsNumber("123.45  ") is True
+
+class TestGetMaxTheoValueDecimal:
+
+    @fixture
+    def mock_query_result(self, mocker):
+        mock_result = mocker.MagicMock()
+        return mock_result
+
+    def test_returnsCorrectMaxForPrecision10Scale1(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(10, 1)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        result = main.getMaxTheoValueDecimal(tableName='vehicles', columnName='miles')
+
+        # precision=10, scale=1 -> 10^(10-1) - 10^(-1) = 10^9 - 0.1 = 999999999.9
+        assert result == 10**9 - 10**(-1)
+
+    def test_returnsCorrectMaxForPrecision5Scale2(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(5, 2)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        result = main.getMaxTheoValueDecimal(tableName='test', columnName='col')
+
+        # precision=5, scale=2 -> 10^4 - 10^(-2) = 10000 - 0.01 = 9999.99
+        assert result == 10**4 - 10**(-2)
+
+    def test_returnsErrorMessageWhenColumnNotDecimalType(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = []
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        result = main.getMaxTheoValueDecimal(tableName='users', columnName='username')
+
+        assert result == "Column is not Decimal type"
+
+    def test_returnsErrorMessageWhenColumnDoesNotExist(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = []
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        result = main.getMaxTheoValueDecimal(tableName='users', columnName='nonexistent')
+
+        assert result == "Column is not Decimal type"
+
+    def test_callsQuerySQLWithCorrectTableAndColumnNames(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(10, 1)]
+        mock_querySQL = mocker.patch('main.querySQL', return_value=mock_result)
+
+        main.getMaxTheoValueDecimal(tableName='myTable', columnName='myColumn')
+
+        querySqlNamedArgs = mock_querySQL.call_args[1]
+        querySqlValArg = querySqlNamedArgs['val']
+
+        assert 'myTable' in querySqlValArg
+        assert 'myColumn' in querySqlValArg
+
+
+class TestSendSMS:
+
+    # we need to mock the twilio Client class, rather than a simple client
+    # because we want to both test the creation of the client by 
+    # checking how the constructor was called, and the params used
+    # when calling the client instance.
+    @fixture
+    def mock_twilioClientClass(self, mocker):
+        # Tempoprarily change the environment variables to test Twilio Credientials
+        mocker.patch.dict('os.environ', {
+            'TWILIO_ACCOUNT_SID': 'test_sid',
+            'TWILIO_AUTH_TOKEN': 'test_token'
+        })
+        fakeTwilioClientClass = mocker.patch('main.TwilioClient')
+        fakeTwilioClient = mocker.MagicMock()
+        fakeTwilioClientClass.return_value = fakeTwilioClient
+        return fakeTwilioClientClass
+
+    def test_callsTwilioClientWithEnvCredentials(self, mock_twilioClientClass):
+        main.sendSMS(recip='+11234567890', msg='Hello')
+        mock_twilioClientClass.assert_called_once_with('test_sid', 'test_token')
+
+    def test_callsMessagesCreateWithCorrectRecipient(self, mock_twilioClientClass):
+        main.sendSMS(recip='+19998887777', msg='Test message')
+        
+        fakeTwilioClient = mock_twilioClientClass.return_value
+        
+        fakeTwilioClient.messages.create.assert_called_once()
+        fakeTwilioCreateMsgArgs = fakeTwilioClient.messages.create.call_args[1]
+        assert fakeTwilioCreateMsgArgs['to'] == '+19998887777'
+
+    def test_callsMessagesCreateWithCorrectBody(self, mock_twilioClientClass):
+        main.sendSMS(recip='+11234567890', msg='Hello World')
+
+        fakeTwilioClient = mock_twilioClientClass.return_value
+
+        fakeTwilioCreateMsgArgs = fakeTwilioClient.messages.create.call_args[1]
+        assert fakeTwilioCreateMsgArgs['body'] == 'Hello World'
+
+    def test_callsMessagesCreateWithCorrectFromNumber(self, mock_twilioClientClass):
+        main.sendSMS(recip='+11234567890', msg='Test')
+
+        fakeTwilioClient = mock_twilioClientClass.return_value
+
+        fakeTwilioCreateMsgArgs = fakeTwilioClient.messages.create.call_args[1]
+        assert fakeTwilioCreateMsgArgs['from_'] == '+18665934611'
+
+    def test_raisesKeyErrorWhenEnvVarsMissing(self, mocker):
+        mocker.patch.dict('os.environ', {}, clear=True)
+
+        with raises(KeyError):
+            main.sendSMS(recip='+11234567890', msg='Test')
+
 class TestQuerySQL:
 
     @fixture
