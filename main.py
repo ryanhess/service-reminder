@@ -553,7 +553,7 @@ def validateUserIdInURL(userID):
         WHERE userID = %s
     ''', val=(userID,))
     if not res.queryResultValues:
-        raise NotInDatabaseError(NOTINDB.format(user=userID))
+        raise NotInDatabaseError(NOTINDB.format(type="user", id=userID))
 
     return userID
 
