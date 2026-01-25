@@ -1508,7 +1508,6 @@ class TestSendSMS:
         with raises(KeyError):
             main.sendSMS(recip='+11234567890', msg='Test')
 
-
 class TestQuerySQL:
 
     @fixture
