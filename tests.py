@@ -2,7 +2,7 @@ import main
 import DB_Builder
 from DB_Builder import DBConnection
 from mysql.connector import connect, Error
-from pytest import fixture, raises
+from pytest import fixture, raises, fail
 from decimal import Decimal
 import pytest_mock
 from datetime import date, timedelta
@@ -1457,12 +1457,18 @@ class TestValidateServiceItemIdInUrl:
 
 
 class TestHandleNewUserPOST:
+            
+    @fixture(autouse=True)
+    def mock_querySqlResult(self, mocker):
+        return mocker.MagicMock()
+    
+    @fixture(autouse=True)
+    def mock_querySQL(self, mocker, mock_querySqlResult):
+        return mocker.patch('main.querySQL', return_value=mock_querySqlResult)
 
-    def test_returnsDictWithUserInfoOnSuccess(self, mocker):
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = []
-        mock_result.insertedRowID = 42
-        mocker.patch('main.querySQL', return_value=mock_result)
+    def test_returnsDictWithUserInfoOnSuccess(self, mock_querySqlResult):
+        mock_querySqlResult.insertedRowID = 42
+        mock_querySqlResult.queryResultValues = []
 
         result = main.handleNewUserPOST('newuser', '+11234567890')
 
@@ -1470,43 +1476,61 @@ class TestHandleNewUserPOST:
         assert result['phone'] == '+11234567890'
         assert result['userID'] == 42
 
-    def test_raisesFormInputErrorWhenPhoneContainsBadWord(self, mocker):
-        with raises(main.FormInputError):
-            main.handleNewUserPOST('testuser', 'f-you')
+    def test_raisesValueErrorWhenUsernameIsEmptyString(self):
+        with raises(ValueError):
+            main.handleNewUserPOST('', '1234567890')
 
-    def test_raisesFormInputErrorWhenUsernameContainsBadWord(self, mocker):
-        with raises(main.FormInputError):
-            main.handleNewUserPOST('whatever', '+11234567890')
+    def test_raisesValueErrorWhenUsernameIsNone(self):
+        with raises(ValueError):
+            main.handleNewUserPOST(None, '1234567890')
 
-    def test_raisesDuplicateItemErrorWhenUsernameExists(self, mocker):
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = [(1,)]  # username found
-        mocker.patch('main.querySQL', return_value=mock_result)
-
+    def test_raisesDuplicateItemErrorWhenUsernameAlreadyExists(self):
         with raises(main.DuplicateItemError):
             main.handleNewUserPOST('existinguser', '+11234567890')
 
-    def test_raisesDuplicateItemErrorWhenPhoneExists(self, mocker):
-        mock_result_username = mocker.MagicMock()
-        mock_result_username.queryResultValues = []  # username not found
-        mock_result_phone = mocker.MagicMock()
-        mock_result_phone.queryResultValues = [(1,)]  # phone found
+    def test_raisesValueErrorWhenPhoneIsEmpty(self):
+        with raises(ValueError):
+            main.handleNewUserPOST('testuser', '')
 
-        mocker.patch('main.querySQL', side_effect=[mock_result_username, mock_result_phone])
+    def test_raisesValueErrorWhenPhoneIsNone(self):
+        with raises(ValueError):
+            main.handleNewUserPOST('testuser', None)
+
+    def test_raisesValueErrorWhenPhoneContainsCharacters(self):
+        try:
+            main.handleNewUserPOST('testuser', 'f5039457')
+        except Exception as e:
+            assert type(e) is ValueError, f"Expected ValueError, got: {type(e).__name__}"
+        else:
+            fail(f"ValueError expected but no exception was raised.")
+
+    def test_raisesValueErrorWhenPhoneIsEntirelyLetters(self):
+        try:
+            main.handleNewUserPOST('testuser', 'fubarfoobar')
+        except Exception as e:
+            assert type(e) is ValueError, f"Expected ValueError, got: {type(e).__name__}"
+        else:
+            fail(f"ValueError expected but no exception was raised.")
+
+    def test_raisesDuplicateItemErrorWhenPhoneExists(self, mock_querySQL, mocker):
+        mock_resultForUsernameQuery = mocker.MagicMock()
+        mock_resultForUsernameQuery.queryResultValues = []  # username not found
+        mock_resultForPhoneQuery = mocker.MagicMock()
+        mock_resultForPhoneQuery.queryResultValues = [(1,)]  # phone found
+
+        mock_querySQL.side_effect=[mock_resultForUsernameQuery, mock_resultForPhoneQuery]
 
         with raises(main.DuplicateItemError):
             main.handleNewUserPOST('newuser', '+11234567890')
 
-    def test_callsQuerySQLToInsertUser(self, mocker):
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = []
-        mock_result.insertedRowID = 1
-        mock_query = mocker.patch('main.querySQL', return_value=mock_result)
+    def test_callsQuerySQLToInsertUser(self, mock_querySqlResult, mock_querySQL):
+        mock_querySqlResult.queryResultValues = []
+        mock_querySqlResult.insertedRowID = 1
 
         main.handleNewUserPOST('testuser', '+11234567890')
 
         # Should be called 3 times: check username, check phone, insert
-        assert mock_query.call_count == 3
+        assert mock_querySQL.call_count == 3
 
 
 class TestHandleNewVehiclePOST:
