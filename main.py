@@ -7,7 +7,7 @@ from mysql.connector.connection import MySQLConnection
 from fastapi import FastAPI, Request, Form, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from twilio.rest import Client
+from twilio.rest import Client as TwilioClient
 from twilio.twiml.messaging_response import MessagingResponse
 # import DB_Builder
 import traceback
@@ -159,7 +159,7 @@ def querySQL(
 def sendSMS(recip="", msg=""):
     account_sid = os.environ["TWILIO_ACCOUNT_SID"]
     auth_token = os.environ["TWILIO_AUTH_TOKEN"]
-    client = Client(account_sid, auth_token)
+    client = TwilioClient(account_sid, auth_token)
 
     message = client.messages.create(
         body=msg,
