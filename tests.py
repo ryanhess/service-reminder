@@ -1763,7 +1763,7 @@ class TestHandleUpdateOdoPOST:
 class TestHandleUpdateServDonePOST:
 
     def test_returnsMilesOnSuccess(self, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=1)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mocker.patch('main.updateServiceDone')
 
         result = main.handleUpdateServDonePOST(1, '50000')
@@ -1771,27 +1771,27 @@ class TestHandleUpdateServDonePOST:
         assert result == '50000'
 
     def test_raisesFormInputErrorWhenMilesIsBlank(self, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=1)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
 
         with raises(main.FormInputError):
             main.handleUpdateServDonePOST(1, '')
 
     def test_raisesFormInputErrorWhenMilesNotANumber(self, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=1)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mocker.patch('main.updateServiceDone', side_effect=TypeError())
 
         with raises(main.FormInputError):
             main.handleUpdateServDonePOST(1, 'notanumber')
 
     def test_raisesFormInputErrorWhenValueError(self, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=1)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mocker.patch('main.updateServiceDone', side_effect=ValueError('some error'))
 
         with raises(main.FormInputError):
             main.handleUpdateServDonePOST(1, '-100')
 
-    def test_callsValidateItemIdInURL(self, mocker):
-        mock_validate = mocker.patch('main.validateItemIdInURL', return_value=1)
+    def test_callsvalidateServiceItemIdInUrl(self, mocker):
+        mock_validate = mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mocker.patch('main.updateServiceDone')
 
         main.handleUpdateServDonePOST(5, '50000')
@@ -1799,7 +1799,7 @@ class TestHandleUpdateServDonePOST:
         mock_validate.assert_called_once_with(5)
 
     def test_callsUpdateServiceDoneWithCorrectParams(self, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=7)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=7)
         mock_update = mocker.patch('main.updateServiceDone')
 
         main.handleUpdateServDonePOST(7, '75000')
