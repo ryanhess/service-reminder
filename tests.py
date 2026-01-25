@@ -1160,7 +1160,7 @@ def test_UpdateServiceDoneUIPOST(client):
 
 
 class TestGetDateTodayStr:
-    
+
     def test_returnsStringNotDateObject(self, mocker):
         mock_date = date(2025, 1, 1)
         mocker.patch('main.getDateToday', return_value=mock_date)
@@ -1201,49 +1201,44 @@ class TestGetDateTodayStr:
         mock_get_date.assert_called_once()
 
 
-class TestStrIsFloat:
+class TestStrIsNumber:
 
     def test_returnsTrueForInteger(self):
-        assert main.strIsFloat("123") is True
+        assert main.strIsNumber("123") is True
 
     def test_returnsTrueForFloat(self):
-        assert main.strIsFloat("123.456") is True
+        assert main.strIsNumber("123.456") is True
 
     def test_returnsTrueForNegativeNumber(self):
-        assert main.strIsFloat("-123.456") is True
+        assert main.strIsNumber("-123.456") is True
 
     def test_returnsTrueForZero(self):
-        assert main.strIsFloat("0") is True
+        assert main.strIsNumber("0") is True
 
     def test_returnsTrueForScientificNotation(self):
-        assert main.strIsFloat("1.23e10") is True
+        assert main.strIsNumber("1.23e10") is True
 
     def test_returnsFalseForAlphabeticString(self):
-        assert main.strIsFloat("abc") is False
+        assert main.strIsNumber("abc") is False
 
     def test_returnsFalseForMixedAlphanumeric(self):
-        assert main.strIsFloat("123abc") is False
+        assert main.strIsNumber("123abc") is False
 
     def test_returnsFalseForEmptyString(self):
-        assert main.strIsFloat("") is False
+        assert main.strIsNumber("") is False
 
     def test_returnsFalseForWhitespaceOnly(self):
-        assert main.strIsFloat("   ") is False
+        assert main.strIsNumber("   ") is False
 
     def test_returnsFalseForSpecialCharacters(self):
-        assert main.strIsFloat("!@#$%") is False
+        assert main.strIsNumber("!@#$%") is False
 
     def test_returnsTrueForStringWithLeadingWhitespace(self):
         # Python's float() accepts leading/trailing whitespace
-        assert main.strIsFloat("  123.45") is True
+        assert main.strIsNumber("  123.45") is True
 
     def test_returnsTrueForStringWithTrailingWhitespace(self):
-        assert main.strIsFloat("123.45  ") is True
-
-    def test_returnsFalseForNoneDefaultParameter(self):
-        # When called with no args, str="" which is empty string
-        assert main.strIsFloat() is False
-
+        assert main.strIsNumber("123.45  ") is True
 
 class TestGetMaxTheoValueDecimal:
 
