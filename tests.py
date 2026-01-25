@@ -1300,56 +1300,57 @@ class TestGetMaxTheoValueDecimal:
 
 
 class TestValidateUserIdInURL:
-
-    def test_returnsIntWhenGivenValidStringId(self, mocker):
+        
+    @fixture
+    def mock_querySqlResult(self, mocker):
         mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = [(1,)]
-        mocker.patch('main.querySQL', return_value=mock_result)
+        return mock_result
+    
+    @fixture(autouse=True)
+    def mock_querySQL(self, mocker, mock_querySqlResult):
+        mock = mocker.patch('main.querySQL', return_value=mock_querySqlResult)
+        return mock
+
+    def test_returnsIntWhenGivenValidStringId(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [(1,)]
 
         result = main.validateUserIdInURL('1')
 
         assert result == 1
         assert isinstance(result, int)
 
-    def test_returnsIntWhenGivenIntId(self, mocker):
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = [(5,)]
-        mocker.patch('main.querySQL', return_value=mock_result)
+    def test_returnsIntWhenGivenIntId(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [(5,)]
 
         result = main.validateUserIdInURL(5)
 
         assert result == 5
 
-    def test_raisesValueErrorWhenGivenNonNumericString(self, mocker):
+    def test_raisesValueErrorWhenGivenNonNumericString(self):
         with raises(ValueError):
             main.validateUserIdInURL('abc')
 
-    def test_raisesValueErrorWhenGivenEmptyString(self, mocker):
+    def test_raisesValueErrorWhenGivenEmptyString(self):
         with raises(ValueError):
             main.validateUserIdInURL('')
 
-    def test_raisesValueErrorWhenGivenFloatString(self, mocker):
+    def test_raisesValueErrorWhenGivenFloatString(self):
         with raises(ValueError):
             main.validateUserIdInURL('1.5')
 
-    def test_raisesNotInDatabaseErrorWhenUserNotFound(self, mocker):
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = []
-        mocker.patch('main.querySQL', return_value=mock_result)
+    def test_raisesNotInDatabaseErrorWhenUserNotFound(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = []
 
         with raises(main.NotInDatabaseError):
             main.validateUserIdInURL('999')
 
-    def test_queriesDatabaseWithCorrectUserId(self, mocker):
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = [(42,)]
-        mock_query = mocker.patch('main.querySQL', return_value=mock_result)
+    def test_queriesDatabaseWithCorrectUserId(self, mock_querySqlResult, mock_querySQL):
+        mock_querySqlResult.queryResultValues = [(42,)]
 
         main.validateUserIdInURL('42')
 
-        call_kwargs = mock_query.call_args[1]
-        assert call_kwargs['val'] == (42,)
-
+        querySqlArgs = mock_querySQL.call_args[1]
+        assert querySqlArgs['val'] == (42,)
 
 class TestValidateVehIdInURL:
 
