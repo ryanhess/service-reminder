@@ -1288,12 +1288,12 @@ class TestGetMaxTheoValueDecimal:
     def test_callsQuerySQLWithCorrectTableAndColumnNames(self, mocker):
         mock_result = mocker.MagicMock()
         mock_result.queryResultValues = [(10, 1)]
-        mock_query = mocker.patch('main.querySQL', return_value=mock_result)
+        mock_querySQL = mocker.patch('main.querySQL', return_value=mock_result)
 
         main.getMaxTheoValueDecimal(tableName='myTable', columnName='myColumn')
 
-        querySqlPositionalArgs = mock_query.call_args[1]
-        querySqlValArg = querySqlPositionalArgs['val']
+        querySqlNamedArgs = mock_querySQL.call_args[1]
+        querySqlValArg = querySqlNamedArgs['val']
 
         assert 'myTable' in querySqlValArg
         assert 'myColumn' in querySqlValArg
@@ -1457,61 +1457,50 @@ class TestValidateServiceItemIdInUrl:
 
 class TestSendSMS:
 
-    def test_callsTwilioClientWithEnvCredentials(self, mocker):
+    # we need to mock the twilio Client class, rather than a simple client
+    # because we want to both test the creation of the client by 
+    # checking how the constructor was called, and the params used
+    # when calling the client instance.
+    @fixture
+    def mock_twilioClientClass(self, mocker):
+        # Tempoprarily change the environment variables to test Twilio Credientials
         mocker.patch.dict('os.environ', {
             'TWILIO_ACCOUNT_SID': 'test_sid',
             'TWILIO_AUTH_TOKEN': 'test_token'
         })
-        mock_client_class = mocker.patch('main.Client')
-        mock_client = mocker.MagicMock()
-        mock_client_class.return_value = mock_client
+        fakeTwilioClientClass = mocker.patch('main.TwilioClient')
+        fakeTwilioClient = mocker.MagicMock()
+        fakeTwilioClientClass.return_value = fakeTwilioClient
+        return fakeTwilioClientClass
 
+    def test_callsTwilioClientWithEnvCredentials(self, mock_twilioClientClass):
         main.sendSMS(recip='+11234567890', msg='Hello')
+        mock_twilioClientClass.assert_called_once_with('test_sid', 'test_token')
 
-        mock_client_class.assert_called_once_with('test_sid', 'test_token')
-
-    def test_callsMessagesCreateWithCorrectRecipient(self, mocker):
-        mocker.patch.dict('os.environ', {
-            'TWILIO_ACCOUNT_SID': 'test_sid',
-            'TWILIO_AUTH_TOKEN': 'test_token'
-        })
-        mock_client_class = mocker.patch('main.Client')
-        mock_client = mocker.MagicMock()
-        mock_client_class.return_value = mock_client
-
+    def test_callsMessagesCreateWithCorrectRecipient(self, mock_twilioClientClass):
         main.sendSMS(recip='+19998887777', msg='Test message')
+        
+        fakeTwilioClient = mock_twilioClientClass.return_value
+        
+        fakeTwilioClient.messages.create.assert_called_once()
+        fakeTwilioCreateMsgArgs = fakeTwilioClient.messages.create.call_args[1]
+        assert fakeTwilioCreateMsgArgs['to'] == '+19998887777'
 
-        mock_client.messages.create.assert_called_once()
-        call_kwargs = mock_client.messages.create.call_args[1]
-        assert call_kwargs['to'] == '+19998887777'
-
-    def test_callsMessagesCreateWithCorrectBody(self, mocker):
-        mocker.patch.dict('os.environ', {
-            'TWILIO_ACCOUNT_SID': 'test_sid',
-            'TWILIO_AUTH_TOKEN': 'test_token'
-        })
-        mock_client_class = mocker.patch('main.Client')
-        mock_client = mocker.MagicMock()
-        mock_client_class.return_value = mock_client
-
+    def test_callsMessagesCreateWithCorrectBody(self, mock_twilioClientClass):
         main.sendSMS(recip='+11234567890', msg='Hello World')
 
-        call_kwargs = mock_client.messages.create.call_args[1]
-        assert call_kwargs['body'] == 'Hello World'
+        fakeTwilioClient = mock_twilioClientClass.return_value
 
-    def test_callsMessagesCreateWithCorrectFromNumber(self, mocker):
-        mocker.patch.dict('os.environ', {
-            'TWILIO_ACCOUNT_SID': 'test_sid',
-            'TWILIO_AUTH_TOKEN': 'test_token'
-        })
-        mock_client_class = mocker.patch('main.Client')
-        mock_client = mocker.MagicMock()
-        mock_client_class.return_value = mock_client
+        fakeTwilioCreateMsgArgs = fakeTwilioClient.messages.create.call_args[1]
+        assert fakeTwilioCreateMsgArgs['body'] == 'Hello World'
 
+    def test_callsMessagesCreateWithCorrectFromNumber(self, mock_twilioClientClass):
         main.sendSMS(recip='+11234567890', msg='Test')
 
-        call_kwargs = mock_client.messages.create.call_args[1]
-        assert call_kwargs['from_'] == '+18665934611'
+        fakeTwilioClient = mock_twilioClientClass.return_value
+
+        fakeTwilioCreateMsgArgs = fakeTwilioClient.messages.create.call_args[1]
+        assert fakeTwilioCreateMsgArgs['from_'] == '+18665934611'
 
     def test_raisesKeyErrorWhenEnvVarsMissing(self, mocker):
         mocker.patch.dict('os.environ', {}, clear=True)
