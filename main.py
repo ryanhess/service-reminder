@@ -48,7 +48,7 @@ def getDateTodayStr():
     return getDateToday().strftime('%Y-%m-%d')
 
 
-def strIsFloat(str=""):
+def strIsNumber(str: str):
     try:
         float(str)
     except ValueError:
@@ -474,7 +474,7 @@ def receiveOdoMsg(From: str = Form(...), Body: str = Form(...)):
     else:
         if not vehID:
             errStr = NOELIGIBLEVEHICLESMS
-        elif not strIsFloat(odo):
+        elif not strIsNumber(odo):
             errStr = ODONOTANUMBER
         elif float(odo) < 0:
             errStr = ODOBELOWZERO
