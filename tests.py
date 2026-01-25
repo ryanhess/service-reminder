@@ -1160,15 +1160,7 @@ def test_UpdateServiceDoneUIPOST(client):
 
 
 class TestGetDateTodayStr:
-
-    def test_returnsStringInCorrectFormat(self, mocker):
-        mock_date = date(2025, 9, 15)
-        mocker.patch('main.getDateToday', return_value=mock_date)
-
-        result = main.getDateTodayStr()
-
-        assert result == '2025-09-15'
-
+    
     def test_returnsStringNotDateObject(self, mocker):
         mock_date = date(2025, 1, 1)
         mocker.patch('main.getDateToday', return_value=mock_date)
@@ -1192,6 +1184,14 @@ class TestGetDateTodayStr:
         result = main.getDateTodayStr()
 
         assert result == '2025-12-05'
+
+    def test_returnsStringInCorrectFormat(self, mocker):
+        mock_date = date(2025, 9, 15)
+        mocker.patch('main.getDateToday', return_value=mock_date)
+
+        result = main.getDateTodayStr()
+
+        assert result == '2025-09-15'
 
     def test_callsGetDateToday(self, mocker):
         mock_get_date = mocker.patch('main.getDateToday', return_value=date(2025, 1, 1))
@@ -1297,9 +1297,11 @@ class TestGetMaxTheoValueDecimal:
 
         main.getMaxTheoValueDecimal(tableName='myTable', columnName='myColumn')
 
-        call_args = mock_query.call_args[0][0]
-        assert 'myTable' in call_args
-        assert 'myColumn' in call_args
+        querySqlPositionalArgs = mock_query.call_args[1]
+        querySqlValArg = querySqlPositionalArgs['val']
+
+        assert 'myTable' in querySqlValArg
+        assert 'myColumn' in querySqlValArg
 
 
 class TestSendSMS:
