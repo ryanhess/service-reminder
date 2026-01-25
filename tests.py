@@ -10,6 +10,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from contextlib import contextmanager, nullcontext as does_not_raise
 from fastapi.testclient import TestClient
 import xml.etree.ElementTree as ET  # for parsing responses from Twilio API routes.
+from typing import Callable, Any
 
 
 @fixture
@@ -57,6 +58,15 @@ def getMaxTheoValueDecimal(tableName="", columnName=""):
         digitsLeftDecimal = result.queryResultValues[0][0] - 1
         digitsRightDecimal = result.queryResultValues[0][1]
         return 10 ** digitsLeftDecimal - 10 ** (-1 * digitsRightDecimal)
+
+
+def assert_specificExceptionRaised(expectedException: type[Exception], functionToTest: Callable[[], Any], *args, **kwargs):
+    try:
+        functionToTest(*args, **kwargs)
+    except Exception as e:
+        assert type(e) is expectedException, f"Expected {expectedException.__name__}, got: {type(e).__name__}"
+    else:
+        fail(f"{expectedException.__name__} expected but no exception was raised.")
 
 
 ### TESTS ###
