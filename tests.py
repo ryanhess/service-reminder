@@ -1299,6 +1299,163 @@ class TestGetMaxTheoValueDecimal:
         assert 'myColumn' in querySqlValArg
 
 
+class TestValidateUserIdInURL:
+        
+    @fixture
+    def mock_querySqlResult(self, mocker):
+        mock_result = mocker.MagicMock()
+        return mock_result
+    
+    @fixture(autouse=True)
+    def mock_querySQL(self, mocker, mock_querySqlResult):
+        mock = mocker.patch('main.querySQL', return_value=mock_querySqlResult)
+        return mock
+
+    def test_returnsIntWhenGivenValidStringId(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [(1,)]
+
+        result = main.validateUserIdInURL('1')
+
+        assert result == 1
+        assert isinstance(result, int)
+
+    def test_returnsIntWhenGivenIntId(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [(5,)]
+
+        result = main.validateUserIdInURL(5)
+
+        assert result == 5
+
+    def test_raisesValueErrorWhenGivenNonNumericString(self):
+        with raises(ValueError):
+            main.validateUserIdInURL('abc')
+
+    def test_raisesValueErrorWhenGivenEmptyString(self):
+        with raises(ValueError):
+            main.validateUserIdInURL('')
+
+    def test_raisesValueErrorWhenGivenFloatString(self):
+        with raises(ValueError):
+            main.validateUserIdInURL('1.5')
+
+    def test_raisesNotInDatabaseErrorWhenUserNotFound(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = []
+
+        with raises(main.NotInDatabaseError):
+            main.validateUserIdInURL('999')
+
+    def test_queriesDatabaseWithCorrectUserId(self, mock_querySqlResult, mock_querySQL):
+        mock_querySqlResult.queryResultValues = [(42,)]
+
+        main.validateUserIdInURL('42')
+
+        querySqlArgs = mock_querySQL.call_args[1]
+        assert querySqlArgs['val'] == (42,)
+
+class TestValidateVehIdInURL:
+
+    def test_returnsIntWhenGivenValidStringId(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1,)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        result = main.validateVehIdInURL('1')
+
+        assert result == 1
+        assert isinstance(result, int)
+
+    def test_returnsIntWhenGivenIntId(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(10,)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        result = main.validateVehIdInURL(10)
+
+        assert result == 10
+
+    def test_raisesValueErrorWhenGivenNonNumericString(self, mocker):
+        with raises(ValueError):
+            main.validateVehIdInURL('blah')
+
+    def test_raisesValueErrorWhenGivenEmptyString(self, mocker):
+        with raises(ValueError):
+            main.validateVehIdInURL('')
+
+    def test_raisesValueErrorWhenGivenFloatString(self, mocker):
+        with raises(ValueError):
+            main.validateVehIdInURL('3.14')
+
+    def test_raisesNotInDatabaseErrorWhenVehicleNotFound(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = []
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        with raises(main.NotInDatabaseError):
+            main.validateVehIdInURL('999')
+
+    def test_queriesDatabaseWithCorrectVehicleId(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(7,)]
+        mock_query = mocker.patch('main.querySQL', return_value=mock_result)
+
+        main.validateVehIdInURL('7')
+
+        call_kwargs = mock_query.call_args[1]
+        assert call_kwargs['val'] == (7,)
+
+
+class TestValidateServiceItemIdInUrl:
+
+    def test_returnsIntWhenGivenValidStringId(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1,)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        result = main.validateServiceItemIdInUrl('1')
+
+        assert result == 1
+        assert isinstance(result, int)
+
+    def test_returnsIntWhenGivenIntId(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(25,)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        result = main.validateServiceItemIdInUrl(25)
+
+        assert result == 25
+
+    def test_raisesValueErrorWhenGivenNonNumericString(self, mocker):
+        with raises(ValueError):
+            main.validateServiceItemIdInUrl('notanumber')
+
+    def test_raisesValueErrorWhenGivenEmptyString(self, mocker):
+        with raises(ValueError):
+            main.validateServiceItemIdInUrl('')
+
+    def test_raisesValueErrorWhenGivenFloatString(self, mocker):
+        with raises(ValueError):
+            main.validateServiceItemIdInUrl('2.5')
+
+    def test_raisesNotInDatabaseErrorWhenItemNotFound(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = []
+        mocker.patch('main.querySQL', return_value=mock_result)
+
+        with raises(main.NotInDatabaseError):
+            main.validateServiceItemIdInUrl('999')
+
+    def test_queriesDatabaseWithCorrectItemId(self, mocker):
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(15,)]
+        mock_query = mocker.patch('main.querySQL', return_value=mock_result)
+
+        main.validateServiceItemIdInUrl('15')
+
+        call_kwargs = mock_query.call_args[1]
+        assert call_kwargs['val'] == (15,)
+
+
 class TestSendSMS:
 
     # we need to mock the twilio Client class, rather than a simple client
