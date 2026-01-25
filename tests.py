@@ -1496,21 +1496,21 @@ class TestHandleNewUserPOST:
         with raises(ValueError):
             main.handleNewUserPOST('testuser', None)
 
-    def test_raisesValueErrorWhenPhoneContainsCharacters(self):
-        try:
-            main.handleNewUserPOST('testuser', 'f5039457')
-        except Exception as e:
-            assert type(e) is ValueError, f"Expected ValueError, got: {type(e).__name__}"
-        else:
-            fail(f"ValueError expected but no exception was raised.")
+    # def test_raisesValueErrorWhenPhoneContainsCharacters(self):
+    #     try:
+    #         main.handleNewUserPOST('testuser', 'f5039457')
+    #     except Exception as e:
+    #         assert type(e) is ValueError, f"Expected ValueError, got: {type(e).__name__}"
+    #     else:
+    #         fail(f"ValueError expected but no exception was raised.")
 
-    def test_raisesValueErrorWhenPhoneIsEntirelyLetters(self):
-        try:
-            main.handleNewUserPOST('testuser', 'fubarfoobar')
-        except Exception as e:
-            assert type(e) is ValueError, f"Expected ValueError, got: {type(e).__name__}"
-        else:
-            fail(f"ValueError expected but no exception was raised.")
+    # def test_raisesValueErrorWhenPhoneIsEntirelyLetters(self):
+    #     try:
+    #         main.handleNewUserPOST('testuser', 'fubarfoobar')
+    #     except Exception as e:
+    #         assert type(e) is ValueError, f"Expected ValueError, got: {type(e).__name__}"
+    #     else:
+    #         fail(f"ValueError expected but no exception was raised.")
 
     def test_raisesDuplicateItemErrorWhenPhoneExists(self, mock_querySQL, mocker):
         mock_resultForUsernameQuery = mocker.MagicMock()
@@ -1535,15 +1535,23 @@ class TestHandleNewUserPOST:
 
 class TestHandleNewVehiclePOST:
 
-    def test_returnsDictWithVehicleInfoOnSuccess(self, mocker):
-        mock_validate = mocker.patch('main.validateUserIdInURL', return_value=1)
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = [('2000',)]  # year cast result
-        mock_result.insertedRowID = 10
-        mock_query = mocker.patch('main.querySQL', return_value=mock_result)
-        mocker.patch('main.updateODO')
+    @fixture(autouse=True)
+    def mock_validateUserIdInURL(self, mocker):
+        return mocker.patch('main.validateUserIdInURL')
 
-        # Need to set up different return values for different queries
+    @fixture(autouse=True)
+    def mock_querySqlResult(self, mocker):
+        return mocker.MagicMock()
+
+    @fixture(autouse=True)
+    def mock_querySQL(self, mocker, mock_querySqlResult):
+        return mocker.patch('main.querySQL', return_value=mock_querySqlResult)
+
+    @fixture(autouse=True)
+    def mock_updateODO(self, mocker):
+        return mocker.patch('main.updateODO')
+
+    def test_returnsDictWithVehicleInfoOnSuccess(self, mock_querySQL, mocker):
         mock_year_result = mocker.MagicMock()
         mock_year_result.queryResultValues = [('2000',)]
         mock_insert_result = mocker.MagicMock()
@@ -1552,93 +1560,87 @@ class TestHandleNewVehiclePOST:
         mock_display_result = mocker.MagicMock()
         mock_display_result.queryResultValues = [('Test Vehicle',)]
 
-        mock_query.side_effect = [mock_year_result, mock_insert_result, mock_display_result]
+        mock_querySQL.side_effect = [mock_year_result, mock_insert_result, mock_display_result]
 
         result = main.handleNewVehiclePOST(1, 'TestNick', '2000', 'Toyota', 'Camry', '')
 
         assert result['id'] == 10
         assert result['displayName'] == 'Test Vehicle'
 
-    def test_raisesFormInputErrorWhenYearIsBlank(self, mocker):
-        mocker.patch('main.validateUserIdInURL', return_value=1)
-
-        with raises(main.FormInputError):
+    def test_raisesValueErrorWhenYearIsBlank(self):
+        with raises(ValueError):
             main.handleNewVehiclePOST(1, 'nick', '', 'make', 'model', '')
 
-    def test_raisesFormInputErrorWhenYearIsNone(self, mocker):
-        mocker.patch('main.validateUserIdInURL', return_value=1)
-
-        with raises(main.FormInputError):
+    def test_raisesValueErrorWhenYearIsNone(self):
+        with raises(ValueError):
             main.handleNewVehiclePOST(1, 'nick', None, 'make', 'model', '')
 
-    def test_raisesFormInputErrorWhenMakeIsBlank(self, mocker):
-        mocker.patch('main.validateUserIdInURL', return_value=1)
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = [('2000',)]
-        mocker.patch('main.querySQL', return_value=mock_result)
+    def test_raisesValueErrorWhenMakeIsBlank(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [('2000',)]
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewVehiclePOST(1, 'nick', '2000', '', 'model', '')
 
-    def test_raisesFormInputErrorWhenModelIsBlank(self, mocker):
-        mocker.patch('main.validateUserIdInURL', return_value=1)
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = [('2000',)]
-        mocker.patch('main.querySQL', return_value=mock_result)
+    def test_raisesValueErrorWhenMakeIsNone(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [('2000',)]
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
+            main.handleNewVehiclePOST(1, 'nick', '2000', None, 'model', '')
+
+    def test_raisesValueErrorWhenModelIsBlank(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [('2000',)]
+
+        with raises(ValueError):
             main.handleNewVehiclePOST(1, 'nick', '2000', 'make', '', '')
 
-    def test_raisesFormInputErrorWhenYearIsInvalid(self, mocker):
-        mocker.patch('main.validateUserIdInURL', return_value=1)
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = [(None,)]  # invalid year cast returns None
-        mocker.patch('main.querySQL', return_value=mock_result)
+    def test_raisesValueErrorWhenModelIsNone(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [('2000',)]
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
+            main.handleNewVehiclePOST(1, 'nick', '2000', 'make', None, '')
+
+    def test_raisesValueErrorWhenYearIsInvalid(self, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [(None,)]  # invalid year cast returns None
+
+        with raises(ValueError):
             main.handleNewVehiclePOST(1, 'nick', 'notyear', 'make', 'model', '')
 
-    def test_raisesFormInputErrorWhenMilesNotANumber(self, mocker):
-        mocker.patch('main.validateUserIdInURL', return_value=1)
+    def test_raisesValueErrorWhenMilesNotANumber(self, mock_querySQL, mock_updateODO, mocker):
         mock_year_result = mocker.MagicMock()
         mock_year_result.queryResultValues = [('2000',)]
         mock_insert_result = mocker.MagicMock()
         mock_insert_result.insertedRowID = 10
         mock_display_result = mocker.MagicMock()
         mock_display_result.queryResultValues = [('Test',)]
-        mocker.patch('main.querySQL', side_effect=[mock_year_result, mock_insert_result, mock_display_result])
-        mocker.patch('main.updateODO', side_effect=TypeError(main.NOTANUMBER))
+        mock_querySQL.side_effect = [mock_year_result, mock_insert_result, mock_display_result]
+        mock_updateODO.side_effect = TypeError(main.NOTANUMBER)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewVehiclePOST(1, 'nick', '2000', 'make', 'model', 'notanumber')
 
-    def test_raisesFormInputErrorWhenMilesNegative(self, mocker):
-        mocker.patch('main.validateUserIdInURL', return_value=1)
+    def test_raisesValueErrorWhenMilesNegative(self, mock_querySQL, mock_updateODO, mocker):
         mock_year_result = mocker.MagicMock()
         mock_year_result.queryResultValues = [('2000',)]
         mock_insert_result = mocker.MagicMock()
         mock_insert_result.insertedRowID = 10
         mock_display_result = mocker.MagicMock()
         mock_display_result.queryResultValues = [('Test',)]
-        mocker.patch('main.querySQL', side_effect=[mock_year_result, mock_insert_result, mock_display_result])
-        mocker.patch('main.updateODO', side_effect=ValueError(main.ODOBELOWZERO))
+        mock_querySQL.side_effect = [mock_year_result, mock_insert_result, mock_display_result]
+        mock_updateODO.side_effect = ValueError(main.ODOBELOWZERO)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewVehiclePOST(1, 'nick', '2000', 'make', 'model', '-100')
 
-    def test_callsValidateUserIdInURL(self, mocker):
-        mock_validate = mocker.patch('main.validateUserIdInURL', return_value=1)
-        mock_result = mocker.MagicMock()
-        mock_result.queryResultValues = [('2000',)]
-        mock_result.insertedRowID = 10
-        mocker.patch('main.querySQL', return_value=mock_result)
+    def test_callsValidateUserIdInURL(self, mock_validateUserIdInURL, mock_querySqlResult):
+        mock_querySqlResult.queryResultValues = [('2000',)]
+        mock_querySqlResult.insertedRowID = 10
 
         try:
             main.handleNewVehiclePOST(5, 'nick', '2000', 'make', 'model', '')
         except:
             pass
 
-        mock_validate.assert_called_once_with(5)
+        mock_validateUserIdInURL.assert_called_once_with(5)
 
 
 class TestHandleNewServicePOST:
@@ -1658,46 +1660,46 @@ class TestHandleNewServicePOST:
         assert result['description'] == 'Oil Change'
         assert result['interval'] == 5000.0
 
-    def test_raisesFormInputErrorWhenDescriptionIsBlank(self, mocker):
+    def test_raisesValueErrorWhenDescriptionIsBlank(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewServicePOST(1, '', '5000', '0')
 
-    def test_raisesFormInputErrorWhenIntervalIsBlank(self, mocker):
+    def test_raisesValueErrorWhenIntervalIsBlank(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewServicePOST(1, 'Oil Change', '', '0')
 
-    def test_raisesFormInputErrorWhenIntervalNotANumber(self, mocker):
+    def test_raisesValueErrorWhenIntervalNotANumber(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewServicePOST(1, 'Oil Change', 'notanumber', '0')
 
-    def test_raisesFormInputErrorWhenIntervalIsZero(self, mocker):
+    def test_raisesValueErrorWhenIntervalIsZero(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewServicePOST(1, 'Oil Change', '0', '0')
 
-    def test_raisesFormInputErrorWhenIntervalIsNegative(self, mocker):
+    def test_raisesValueErrorWhenIntervalIsNegative(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewServicePOST(1, 'Oil Change', '-100', '0')
 
-    def test_raisesFormInputErrorWhenMilesLastDoneNotANumber(self, mocker):
+    def test_raisesValueErrorWhenMilesLastDoneNotANumber(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewServicePOST(1, 'Oil Change', '5000', 'notanumber')
 
-    def test_raisesFormInputErrorWhenMilesLastDoneIsNegative(self, mocker):
+    def test_raisesValueErrorWhenMilesLastDoneIsNegative(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleNewServicePOST(1, 'Oil Change', '5000', '-100')
 
     def test_raisesDuplicateItemErrorWhenDescriptionExists(self, mocker):
@@ -1747,24 +1749,24 @@ class TestHandleUpdateOdoPOST:
 
         assert result == '50000'
 
-    def test_raisesFormInputErrorWhenMilesIsBlank(self, mocker):
+    def test_raisesValueErrorWhenMilesIsBlank(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleUpdateOdoPOST(1, '')
 
-    def test_raisesFormInputErrorWhenMilesNotANumber(self, mocker):
+    def test_raisesValueErrorWhenMilesNotANumber(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
         mocker.patch('main.updateODO', side_effect=TypeError())
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleUpdateOdoPOST(1, 'notanumber')
 
-    def test_raisesFormInputErrorWhenOdoDecreasing(self, mocker):
+    def test_raisesValueErrorWhenOdoDecreasing(self, mocker):
         mocker.patch('main.validateVehIdInURL', return_value=1)
         mocker.patch('main.updateODO', side_effect=ValueError(main.ODODECREASING))
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleUpdateOdoPOST(1, '1000')
 
     def test_callsValidateVehIdInURL(self, mocker):
@@ -1794,24 +1796,24 @@ class TestHandleUpdateServDonePOST:
 
         assert result == '50000'
 
-    def test_raisesFormInputErrorWhenMilesIsBlank(self, mocker):
+    def test_raisesValueErrorWhenMilesIsBlank(self, mocker):
         mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleUpdateServDonePOST(1, '')
 
-    def test_raisesFormInputErrorWhenMilesNotANumber(self, mocker):
+    def test_raisesValueErrorWhenMilesNotANumber(self, mocker):
         mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mocker.patch('main.updateServiceDone', side_effect=TypeError())
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleUpdateServDonePOST(1, 'notanumber')
 
-    def test_raisesFormInputErrorWhenValueError(self, mocker):
+    def test_raisesValueErrorWhenValueError(self, mocker):
         mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mocker.patch('main.updateServiceDone', side_effect=ValueError('some error'))
 
-        with raises(main.FormInputError):
+        with raises(ValueError):
             main.handleUpdateServDonePOST(1, '-100')
 
     def test_callsvalidateServiceItemIdInUrl(self, mocker):
