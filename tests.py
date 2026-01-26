@@ -10,6 +10,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from contextlib import contextmanager, nullcontext as does_not_raise
 from fastapi.testclient import TestClient
 import xml.etree.ElementTree as ET  # for parsing responses from Twilio API routes.
+from typing import Callable, Any
 
 
 @fixture
@@ -57,6 +58,15 @@ def getMaxTheoValueDecimal(tableName="", columnName=""):
         digitsLeftDecimal = result.queryResultValues[0][0] - 1
         digitsRightDecimal = result.queryResultValues[0][1]
         return 10 ** digitsLeftDecimal - 10 ** (-1 * digitsRightDecimal)
+
+
+def assert_specificExceptionRaised(expectedException: type[Exception], functionToTest: Callable[[], Any], *args, **kwargs):
+    try:
+        functionToTest(*args, **kwargs)
+    except Exception as e:
+        assert type(e) is expectedException, f"Expected {expectedException.__name__}, got: {type(e).__name__}"
+    else:
+        fail(f"{expectedException.__name__} expected but no exception was raised.")
 
 
 ### TESTS ###
@@ -1477,24 +1487,19 @@ class TestHandleNewUserPOST:
         assert result['userID'] == 42
 
     def test_raisesValueErrorWhenUsernameIsEmptyString(self):
-        with raises(ValueError):
-            main.handleNewUserPOST(username='', phone='1234567890')
+        assert_specificExceptionRaised(ValueError, main.handleNewUserPOST, username='', phone='1234567890')
 
     def test_raisesValueErrorWhenUsernameIsNone(self):
-        with raises(ValueError):
-            main.handleNewUserPOST(username=None, phone='1234567890')
+        assert_specificExceptionRaised(ValueError, main.handleNewUserPOST, username=None, phone='1234567890')
 
     def test_raisesDuplicateItemErrorWhenUsernameAlreadyExists(self):
-        with raises(main.DuplicateItemError):
-            main.handleNewUserPOST(username='existinguser', phone='+11234567890')
+        assert_specificExceptionRaised(main.DuplicateItemError, main.handleNewUserPOST, username='existinguser', phone='+11234567890')
 
     def test_raisesValueErrorWhenPhoneIsEmpty(self):
-        with raises(ValueError):
-            main.handleNewUserPOST(username='testuser', phone='')
+        assert_specificExceptionRaised(ValueError, main.handleNewUserPOST, username='testuser', phone='')
 
     def test_raisesValueErrorWhenPhoneIsNone(self):
-        with raises(ValueError):
-            main.handleNewUserPOST(username='testuser', phone=None)
+        assert_specificExceptionRaised(ValueError, main.handleNewUserPOST, username='testuser', phone=None)
 
     # def test_raisesValueErrorWhenPhoneContainsCharacters(self):
     #     try:
@@ -1520,8 +1525,7 @@ class TestHandleNewUserPOST:
 
         mock_querySQL.side_effect=[mock_resultForUsernameQuery, mock_resultForPhoneQuery]
 
-        with raises(main.DuplicateItemError):
-            main.handleNewUserPOST(username='newuser', phone='+11234567890')
+        assert_specificExceptionRaised(main.DuplicateItemError, main.handleNewUserPOST, username='newuser', phone='+11234567890')
 
     def test_callsQuerySQLToInsertUser(self, mock_querySqlResult, mock_querySQL):
         mock_querySqlResult.queryResultValues = []
@@ -1568,42 +1572,35 @@ class TestHandleNewVehiclePOST:
         assert result['displayName'] == 'Test Vehicle'
 
     def test_raisesValueErrorWhenYearIsBlank(self):
-        with raises(ValueError):
-            main.handleNewVehiclePOST(userID=1, nick='nick', year='', make='make', model='model', miles='')
+        assert_specificExceptionRaised(ValueError, main.handleNewVehiclePOST, userID=1, nick='nick', year='', make='make', model='model', miles='')
 
     def test_raisesValueErrorWhenYearIsNone(self):
-        with raises(ValueError):
-            main.handleNewVehiclePOST(userID=1, nick='nick', year=None, make='make', model='model', miles='')
+        assert_specificExceptionRaised(ValueError, main.handleNewVehiclePOST, userID=1, nick='nick', year=None, make='make', model='model', miles='')
 
     def test_raisesValueErrorWhenMakeIsBlank(self, mock_querySqlResult):
         mock_querySqlResult.queryResultValues = [('2000',)]
 
-        with raises(ValueError):
-            main.handleNewVehiclePOST(userID=1, nick='nick', year='2000', make='', model='model', miles='')
+        assert_specificExceptionRaised(ValueError, main.handleNewVehiclePOST, userID=1, nick='nick', year='2000', make='', model='model', miles='')
 
     def test_raisesValueErrorWhenMakeIsNone(self, mock_querySqlResult):
         mock_querySqlResult.queryResultValues = [('2000',)]
 
-        with raises(ValueError):
-            main.handleNewVehiclePOST(userID=1, nick='nick', year='2000', make=None, model='model', miles='')
+        assert_specificExceptionRaised(ValueError, main.handleNewVehiclePOST, userID=1, nick='nick', year='2000', make=None, model='model', miles='')
 
     def test_raisesValueErrorWhenModelIsBlank(self, mock_querySqlResult):
         mock_querySqlResult.queryResultValues = [('2000',)]
 
-        with raises(ValueError):
-            main.handleNewVehiclePOST(userID=1, nick='nick', year='2000', make='make', model='', miles='')
+        assert_specificExceptionRaised(ValueError, main.handleNewVehiclePOST, userID=1, nick='nick', year='2000', make='make', model='', miles='')
 
     def test_raisesValueErrorWhenModelIsNone(self, mock_querySqlResult):
         mock_querySqlResult.queryResultValues = [('2000',)]
 
-        with raises(ValueError):
-            main.handleNewVehiclePOST(userID=1, nick='nick', year='2000', make='make', model=None, miles='')
+        assert_specificExceptionRaised(ValueError, main.handleNewVehiclePOST, userID=1, nick='nick', year='2000', make='make', model=None, miles='')
 
     def test_raisesValueErrorWhenYearIsInvalid(self, mock_querySqlResult):
         mock_querySqlResult.queryResultValues = [(None,)]  # invalid year cast returns None
 
-        with raises(ValueError):
-            main.handleNewVehiclePOST(userID=1, nick='nick', year='notyear', make='make', model='model', miles='')
+        assert_specificExceptionRaised(ValueError, main.handleNewVehiclePOST, userID=1, nick='nick', year='notyear', make='make', model='model', miles='')
 
     def test_raisesValueErrorWhenMilesNotANumber(self, mock_querySQL, mock_updateODO, mocker):
         mock_year_result = mocker.MagicMock()
@@ -1615,8 +1612,7 @@ class TestHandleNewVehiclePOST:
         mock_querySQL.side_effect = [mock_year_result, mock_insert_result, mock_display_result]
         mock_updateODO.side_effect = TypeError(main.NOTANUMBER)
 
-        with raises(ValueError):
-            main.handleNewVehiclePOST(userID=1, nick='nick', year='2000', make='make', model='model', miles='notanumber')
+        assert_specificExceptionRaised(ValueError, main.handleNewVehiclePOST, userID=1, nick='nick', year='2000', make='make', model='model', miles='notanumber')
 
     def test_raisesValueErrorWhenMilesNegative(self, mock_querySQL, mock_updateODO, mocker):
         mock_year_result = mocker.MagicMock()
@@ -1628,8 +1624,7 @@ class TestHandleNewVehiclePOST:
         mock_querySQL.side_effect = [mock_year_result, mock_insert_result, mock_display_result]
         mock_updateODO.side_effect = ValueError(main.ODOBELOWZERO)
 
-        with raises(ValueError):
-            main.handleNewVehiclePOST(userID=1, nick='nick', year='2000', make='make', model='model', miles='-100')
+        assert_specificExceptionRaised(ValueError, main.handleNewVehiclePOST, userID=1, nick='nick', year='2000', make='make', model='model', miles='-100')
 
     def test_callsValidateUserIdInURL(self, mock_validateUserIdInURL, mock_querySqlResult):
         mock_querySqlResult.queryResultValues = [('2000',)]
@@ -1672,46 +1667,36 @@ class TestHandleNewServicePOST:
         assert result['interval'] == 5000.0
 
     def test_raisesValueErrorWhenDescriptionIsBlank(self):
-        with raises(ValueError):
-            main.handleNewServicePOST(vehicleID=1, description='', interval='5000', milesLastDone='0')
+        assert_specificExceptionRaised(ValueError, main.handleNewServicePOST, vehicleID=1, description='', interval='5000', milesLastDone='0')
 
     def test_raisesValueErrorWhenDescriptionIsNone(self):
-        with raises(ValueError):
-            main.handleNewServicePOST(vehicleID=1, description=None, interval='5000', milesLastDone='0')
+        assert_specificExceptionRaised(ValueError, main.handleNewServicePOST, vehicleID=1, description=None, interval='5000', milesLastDone='0')
 
     def test_raisesValueErrorWhenIntervalIsBlank(self):
-        with raises(ValueError):
-            main.handleNewServicePOST(vehicleID=1, description='Oil Change', interval='', milesLastDone='0')
+        assert_specificExceptionRaised(ValueError, main.handleNewServicePOST, vehicleID=1, description='Oil Change', interval='', milesLastDone='0')
 
     def test_raisesValueErrorWhenIntervalIsNone(self):
-        with raises(ValueError):
-            main.handleNewServicePOST(vehicleID=1, description='Oil Change', interval=None, milesLastDone='0')
+        assert_specificExceptionRaised(ValueError, main.handleNewServicePOST, vehicleID=1, description='Oil Change', interval=None, milesLastDone='0')
 
     def test_raisesValueErrorWhenIntervalNotANumber(self):
-        with raises(ValueError):
-            main.handleNewServicePOST(vehicleID=1, description='Oil Change', interval='notanumber', milesLastDone='0')
+        assert_specificExceptionRaised(ValueError, main.handleNewServicePOST, vehicleID=1, description='Oil Change', interval='notanumber', milesLastDone='0')
 
     def test_raisesValueErrorWhenIntervalIsZero(self):
-        with raises(ValueError):
-            main.handleNewServicePOST(vehicleID=1, description='Oil Change', interval='0', milesLastDone='0')
+        assert_specificExceptionRaised(ValueError, main.handleNewServicePOST, vehicleID=1, description='Oil Change', interval='0', milesLastDone='0')
 
     def test_raisesValueErrorWhenIntervalIsNegative(self):
-        with raises(ValueError):
-            main.handleNewServicePOST(vehicleID=1, description='Oil Change', interval='-100', milesLastDone='0')
+        assert_specificExceptionRaised(ValueError, main.handleNewServicePOST, vehicleID=1, description='Oil Change', interval='-100', milesLastDone='0')
 
     def test_raisesValueErrorWhenMilesLastDoneNotANumber(self):
-        with raises(ValueError):
-            main.handleNewServicePOST(vehicleID=1, description='Oil Change', interval='5000', milesLastDone='notanumber')
+        assert_specificExceptionRaised(ValueError, main.handleNewServicePOST, vehicleID=1, description='Oil Change', interval='5000', milesLastDone='notanumber')
 
     def test_raisesValueErrorWhenMilesLastDoneIsNegative(self):
-        with raises(ValueError):
-            main.handleNewServicePOST(vehicleID=1, description='Oil Change', interval='5000', milesLastDone='-100')
+        assert_specificExceptionRaised(ValueError, main.handleNewServicePOST, vehicleID=1, description='Oil Change', interval='5000', milesLastDone='-100')
 
     def test_raisesDuplicateItemErrorWhenDescriptionAlreadyExists(self, mock_querySqlResult):
         mock_querySqlResult.queryResultValues = [('Oil Change',)]  # duplicate found
 
-        with raises(main.DuplicateItemError):
-            main.handleNewServicePOST(vehicleID=1, description='Oil Change', interval='5000', milesLastDone='0')
+        assert_specificExceptionRaised(main.DuplicateItemError, main.handleNewServicePOST, vehicleID=1, description='Oil Change', interval='5000', milesLastDone='0')
 
     def test_callsValidateVehIdInURL(self, mock_validateVehIdInURL, mock_querySqlResult):
         mock_querySqlResult.queryResultValues = []
@@ -1753,24 +1738,20 @@ class TestHandleUpdateOdoPOST:
         assert result == '50000'
 
     def test_raisesValueErrorWhenMilesIsBlank(self):
-        with raises(ValueError):
-            main.handleUpdateOdoPOST(vehicleID=1, miles='')
+        assert_specificExceptionRaised(ValueError, main.handleUpdateOdoPOST, vehicleID=1, miles='')
 
     def test_raisesValueErrorWhenMilesIsNone(self):
-        with raises(ValueError):
-            main.handleUpdateOdoPOST(vehicleID=1, miles=None)
+        assert_specificExceptionRaised(ValueError, main.handleUpdateOdoPOST, vehicleID=1, miles=None)
 
     def test_raisesValueErrorWhenMilesNotANumber(self, mock_updateODO):
         mock_updateODO.side_effect = TypeError()
 
-        with raises(ValueError):
-            main.handleUpdateOdoPOST(vehicleID=1, miles='notanumber')
+        assert_specificExceptionRaised(ValueError, main.handleUpdateOdoPOST, vehicleID=1, miles='notanumber')
 
     def test_raisesValueErrorWhenOdoDecreasing(self, mock_updateODO):
         mock_updateODO.side_effect = ValueError(main.ODODECREASING)
 
-        with raises(ValueError):
-            main.handleUpdateOdoPOST(vehicleID=1, miles='1000')
+        assert_specificExceptionRaised(ValueError, main.handleUpdateOdoPOST, vehicleID=1, miles='1000')
 
     def test_callsValidateVehIdInURL(self, mock_validateVehIdInURL):
         main.handleUpdateOdoPOST(vehicleID=5, miles='50000')
@@ -1801,24 +1782,20 @@ class TestHandleUpdateServDonePOST:
         assert result == '50000'
 
     def test_raisesValueErrorWhenMilesIsBlank(self):
-        with raises(ValueError):
-            main.handleUpdateServDonePOST(itemID=1, miles='')
+        assert_specificExceptionRaised(ValueError, main.handleUpdateServDonePOST, itemID=1, miles='')
 
     def test_raisesValueErrorWhenMilesIsNone(self):
-        with raises(ValueError):
-            main.handleUpdateServDonePOST(itemID=1, miles=None)
+        assert_specificExceptionRaised(ValueError, main.handleUpdateServDonePOST, itemID=1, miles=None)
 
     def test_raisesValueErrorWhenMilesNotANumber(self, mock_updateServiceDone):
         mock_updateServiceDone.side_effect = TypeError()
 
-        with raises(ValueError):
-            main.handleUpdateServDonePOST(itemID=1, miles='notanumber')
+        assert_specificExceptionRaised(ValueError, main.handleUpdateServDonePOST, itemID=1, miles='notanumber')
 
     def test_raisesValueErrorWhenValueError(self, mock_updateServiceDone):
         mock_updateServiceDone.side_effect = ValueError('some error')
 
-        with raises(ValueError):
-            main.handleUpdateServDonePOST(itemID=1, miles='-100')
+        assert_specificExceptionRaised(ValueError, main.handleUpdateServDonePOST, itemID=1, miles='-100')
 
     def test_callsvalidateServiceItemIdInUrl(self, mock_validateServiceItemIdInUrl):
         main.handleUpdateServDonePOST(itemID=5, miles='50000')

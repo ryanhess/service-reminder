@@ -607,7 +607,7 @@ def handleNewVehiclePOST(userID, nick: str, year: str, make: str, model: str, mi
     # year
     # check that it is present and will convert to a YEAR type in SQL
     if year == '' or not year:
-        raise FormInputError(FORMFIELDBLANK.format(field='year'))
+        raise ValueError(FORMFIELDBLANK.format(field='year'))
 
     # try casting the input into a SQL year datatype
     if year == '1':
@@ -616,15 +616,15 @@ def handleNewVehiclePOST(userID, nick: str, year: str, make: str, model: str, mi
         SELECT CAST(%s AS YEAR)
     ''', val=(year, ))
     if not res.queryResultValues[0][0]:
-        raise FormInputError(INVALIDPARAM.format(param='year'))
+        raise ValueError(INVALIDPARAM.format(param='year'))
 
     # make
-    if make == '':
-        raise FormInputError(FORMFIELDBLANK.format(field='make'))
+    if not make:
+        raise ValueError("Make is none or emptystring")
 
     # model
-    if model == '':
-        raise FormInputError(FORMFIELDBLANK.format(field='model'))
+    if not model:
+        raise ValueError("Model is none or emptystring")
 
     result = querySQL(stmt='''
         INSERT INTO vehicles
@@ -645,10 +645,10 @@ def handleNewVehiclePOST(userID, nick: str, year: str, make: str, model: str, mi
         try:
             updateODO(vehID=newVehID, newODO=miles)
         except TypeError:
-            raise FormInputError(NOTANUMBER.format(what='miles'))
+            raise ValueError(NOTANUMBER.format(what='miles'))
         except ValueError as e:
             if ODOBELOWZERO in str(e):
-                raise FormInputError(ODOBELOWZERO)
+                raise ValueError(ODOBELOWZERO)
             else:
                 # if value error is being raised for any other reason,
                 # that's an uncaught exception and 400.
@@ -673,12 +673,12 @@ def handleNewServicePOST(vehicleID: int, description: str, interval: str, milesL
         raise e
 
     # description - check that it is present
-    if description == '':
-        raise FormInputError(FORMFIELDBLANK.format(field='description'))
+    if not description:
+        raise ValueError('Exception: description is None or emptystring')
 
     # interval - check that it is present and valid
-    if interval == '':
-        raise FormInputError(FORMFIELDBLANK.format(field='interval'))
+    if not interval:
+        raise ValueError('Exception: description is None or emptystring')
 
     # try casting the input into a float
     try:
@@ -686,7 +686,7 @@ def handleNewServicePOST(vehicleID: int, description: str, interval: str, milesL
         if interval_float <= 0:
             raise ValueError()
     except ValueError:
-        raise FormInputError(NOTANUMBER.format(what='interval'))
+        raise ValueError(NOTANUMBER.format(what='interval'))
 
     # check that miles last done is a valid (positive) number
     milesLastDone_val = milesLastDone
@@ -695,9 +695,9 @@ def handleNewServicePOST(vehicleID: int, description: str, interval: str, milesL
         try:
             milesLastDone_val = float(milesLastDone_val)
             if milesLastDone_val < 0:
-                raise FormInputError(BELOWZERO.format(what='milesLastDone'))
+                raise ValueError(BELOWZERO.format(what='milesLastDone'))
         except ValueError:
-            raise FormInputError(NOTANUMBER.format(what='Miles Last Done'))
+            raise ValueError(NOTANUMBER.format(what='Miles Last Done'))
     else:
         milesLastDone_val = 0
 
@@ -736,18 +736,18 @@ def handleUpdateOdoPOST(vehicleID: int, miles: str):
     except Exception as e:
         raise e
 
-    if miles == '':
-        raise FormInputError(FORMFIELDBLANK.format(field='miles'))
+    if not miles:
+        raise ValueError('exception: miles is empty string or none')
 
     # updateODO does the rest of the input checking.
     try:
         updateODO(vehID=vehicleID, newODO=miles)
     except ValueError as v:
         if ODODECREASING in str(v):
-            raise FormInputError(ODODECREASING)
+            raise ValueError(ODODECREASING)
 
     except TypeError:
-        raise FormInputError(ODONOTANUMBER)
+        raise ValueError(ODONOTANUMBER)
     except Exception as e:
         raise e
 
@@ -763,16 +763,16 @@ def handleUpdateServDonePOST(itemID: int, miles: str):
         raise e
 
     # check that miles is present
-    if miles == '':
-        raise FormInputError(FORMFIELDBLANK.format(field='miles'))
+    if not miles:
+        raise ValueError("Exception: Miles is none or emptystring")
 
     # updateServiceDone with error checking
     try:
         updateServiceDone(itemID=itemID, itemODO=miles)
     except ValueError as e:
-        raise FormInputError(f'{e}')
+        raise ValueError(f'{e}')
     except TypeError:
-        raise FormInputError(ODONOTANUMBER)
+        raise ValueError(ODONOTANUMBER)
     except Exception as e:
         raise e
 
