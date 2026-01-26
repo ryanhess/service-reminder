@@ -78,10 +78,7 @@ def getMaxTheoValueDecimal(tableName="", columnName=""):
         return 10 ** digitsLeftDecimal - 10 ** (-1 * digitsRightDecimal)
 
 ### custom exceptions ###
-
 # exception thrown when a given row is not found in DB
-
-
 class NotInDatabaseError(Exception):
     pass
 
@@ -508,20 +505,22 @@ def receiveOdoMsg(From: str = Form(...), Body: str = Form(...)):
 ### WEB UI handler functions ###
 # do all the input handling here. if bad input, raise an exception
 def handleNewUserPOST(username: str, phone: str):
-    # input handling and cleaning up here.
-    if 'f-you' in phone or 'whatever' in username:
-        raise FormInputError('you messed up, ya doof!')
+    if not username:
+        raise ValueError('handleNewUserPOST called with no or empty username')
+
+    if not phone:
+        raise ValueError('handleNewUserPOST called with no or empty phone')
 
     # now check if the username or phone number already exists and raise an error for each. Can't have any duplicate phone numbers.
     res = querySQL('''
-        SELECT userID FROM users
+        SELECT username FROM users
         WHERE username = %s
     ''', val=(username,))
     if res.queryResultValues:
         raise DuplicateItemError(ILLEGALDUPLICATE.format(param='username'))
 
     res = querySQL('''
-        SELECT userID FROM users
+        SELECT phone FROM users
         WHERE phone = %s
     ''', val=(phone,))
     if res.queryResultValues:
