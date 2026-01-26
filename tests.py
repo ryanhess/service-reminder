@@ -735,438 +735,446 @@ def test_webUserRoutes(client):
     assert response.status_code == 404
 
 
-# to verify correct template rendering and context data.
-def test_newUserUIPOST(client):
-    def checkUserInDB(username, phone):
-        """Check that username exists in DB with matching phone."""
-        res = main.querySQL(
-            stmt='''
-                SELECT phone FROM users WHERE username = %s
-            ''',
-            val=(username,)
-        )
+class TestNewUserUIPost:
 
-        if not res.queryResultValues:
-            return False
-        return res.queryResultValues[0][0] == str(phone)
+    def test_rendersConfirmationTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.handleNewUserPOST', return_value={
+            'userID': 1, 'username': 'testuser', 'phone': '+11234567890'
+        })
 
-    # Test duplicate username error
-    response = client.post('/Users/New', data={'username': 'ryanhess', 'phone': '1414144444'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_user_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.ILLEGALDUPLICATE.format(param='username') in responseErrorMsg
+        response = client.post('/Users/New', data={'username': 'testuser', 'phone': '+11234567890'})
 
-    # Test duplicate phone error
-    response = client.post('/Users/New', data={'username': 'thepinkpanther', 'phone': '+18777804236'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_user_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.ILLEGALDUPLICATE.format(param='phone') in responseErrorMsg
+        assert response.status_code == 200
+        assert response.template.name == 'new_user_submitted.html'
 
-    # Test successful user creation
-    response = client.post('/Users/New', data={'username': 'newUserTest123', 'phone': '+12838812931'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_user_submitted.html'
-    assert 'userInfo' in response.context
-    assert response.context['userInfo']['username'] == 'newUserTest123'
-    assert response.context['userInfo']['phone'] == '+12838812931'
-    assert checkUserInDB('newUserTest123', '+12838812931')
+    def test_passesUserInfoToTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.handleNewUserPOST', return_value={
+            'userID': 42, 'username': 'newuser', 'phone': '+19998887777'
+        })
 
-    # Test another successful user creation
-    response = client.post('/Users/New', data={'username': '###fsf23', 'phone': '+14838812931'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_user_submitted.html'
-    assert 'userInfo' in response.context
-    assert checkUserInDB('###fsf23', '+14838812931')
+        response = client.post('/Users/New', data={'username': 'newuser', 'phone': '+19998887777'})
 
+        assert response.context['userInfo']['userID'] == 42
+        assert response.context['userInfo']['username'] == 'newuser'
+        assert response.context['userInfo']['phone'] == '+19998887777'
 
-def test_newVehicleUIPOST(client):
-    def checkVehCreated(vehID):
-        """Check that vehicle exists in DB."""
-        res = main.querySQL(stmt='''
-            SELECT vehicleID FROM vehicles WHERE vehicleID = %s
-        ''', val=(vehID,))
-        return bool(res.queryResultValues)
+    def test_rendersFormTemplateOnFormInputError(self, client, mocker):
+        mocker.patch('main.handleNewUserPOST', side_effect=main.FormInputError('bad input'))
 
-    def getVehModel(vehID):
-        """Get the model field from DB for a vehicle."""
-        res = main.querySQL(stmt='''
-            SELECT model FROM vehicles WHERE vehicleID = %s
-        ''', val=(vehID,))
-        return res.queryResultValues[0][0] if res.queryResultValues else None
+        response = client.post('/Users/New', data={'username': 'test', 'phone': 'bad'})
 
-    # Test SQL injection is treated as harmless string
-    response = client.post('/Users/2/New-Vehicle', data={
-        'nickname': 'hello; drop table users;',
-        'year': '2000',
-        'make': 'lex',
-        'model': 'blah; drop table users;',
-        'miles': ''
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_conf.html'
-    vehicle = response.context.get('vehicle')
-    assert vehicle
-    assert checkVehCreated(vehicle['id'])
-    # Verify the SQL injection string is stored as plain text in the database
-    assert getVehModel(vehicle['id']) == 'blah; drop table users;'
+        assert response.status_code == 200
+        assert response.template.name == 'new_user_form.html'
 
-    # Test missing year error
-    response = client.post('/Users/1/New-Vehicle', data={})
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='year') in responseErrorMsg
+    def test_passesErrorMessageOnFormInputError(self, client, mocker):
+        mocker.patch('main.handleNewUserPOST', side_effect=main.FormInputError('you messed up'))
 
-    # Test missing year with only nickname
-    response = client.post('/Users/3/New-Vehicle', data={'nickname': 'hello'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='year') in responseErrorMsg
+        response = client.post('/Users/New', data={'username': 'test', 'phone': 'bad'})
 
-    # Test missing make error
-    response = client.post('/Users/3/New-Vehicle', data={'nickname': 'hello', 'year': '2000'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='make') in responseErrorMsg
+        assert response.context.get('errorMessage') == 'you messed up'
 
-    # Test missing model error
-    response = client.post('/Users/3/New-Vehicle', data={'nickname': 'hello', 'year': '2000', 'make': 'lex'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='model') in responseErrorMsg
+    def test_rendersFormTemplateOnDuplicateItemError(self, client, mocker):
+        mocker.patch('main.handleNewUserPOST', side_effect=main.DuplicateItemError('already exists'))
 
-    # Test missing miles is valid (Form("") default)
-    response = client.post('/Users/3/New-Vehicle', data={
-        'nickname': 'hello', 'year': '2000', 'make': 'lex', 'model': 'blah'
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_conf.html'
+        response = client.post('/Users/New', data={'username': 'existing', 'phone': '+11234567890'})
 
-    # Test blank year error
-    response = client.post('/Users/3/New-Vehicle', data={
-        'nickname': 'hello', 'year': '', 'make': 'lex', 'model': 'blah', 'miles': '20'
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='year') in responseErrorMsg
+        assert response.status_code == 200
+        assert response.template.name == 'new_user_form.html'
 
-    # Test invalid year (negative)
-    response = client.post('/Users/1/New-Vehicle', data={
-        'nickname': 'hello', 'year': '-5', 'make': 'lex', 'model': 'blah', 'miles': ''
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.INVALIDPARAM.format(param='year') in responseErrorMsg
+    def test_passesErrorMessageOnDuplicateItemError(self, client, mocker):
+        mocker.patch('main.handleNewUserPOST', side_effect=main.DuplicateItemError('username exists'))
 
-    # Test invalid year (not a number)
-    response = client.post('/Users/1/New-Vehicle', data={
-        'nickname': 'hello', 'year': 'not a year', 'make': 'lex', 'model': 'blah', 'miles': ''
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.INVALIDPARAM.format(param='year') in responseErrorMsg
+        response = client.post('/Users/New', data={'username': 'existing', 'phone': '+11234567890'})
 
-    # Test empty nickname is OK
-    response = client.post('/Users/3/New-Vehicle', data={
-        'nickname': '', 'year': '2000', 'make': 'lex', 'model': 'blah', 'miles': ''
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_conf.html'
+        assert response.context.get('errorMessage') == 'username exists'
 
-    # Test blank make error
-    response = client.post('/Users/1/New-Vehicle', data={
-        'nickname': 'hello', 'year': '2000', 'make': '', 'model': 'blah', 'miles': ''
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='make') in responseErrorMsg
+    def test_callsHandlerWithCorrectParams(self, client, mocker):
+        mock_handler = mocker.patch('main.handleNewUserPOST', return_value={
+            'userID': 1, 'username': 'myuser', 'phone': '+15551234567'
+        })
 
-    # Test blank model error
-    response = client.post('/Users/1/New-Vehicle', data={
-        'nickname': 'hello', 'year': '2000', 'make': 'make', 'model': '', 'miles': ''
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='model') in responseErrorMsg
+        client.post('/Users/New', data={'username': 'myuser', 'phone': '+15551234567'})
 
-    # Test miles not a number error
-    response = client.post('/Users/1/New-Vehicle', data={
-        'nickname': 'hello', 'year': '2000', 'make': 'make', 'model': 'blah', 'miles': 'word'
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.NOTANUMBER.format(what='miles') in responseErrorMsg
-
-    # Test negative miles error
-    response = client.post('/Users/1/New-Vehicle', data={
-        'nickname': 'hello', 'year': '2000', 'make': 'make', 'model': 'blah', 'miles': '-1'
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.ODOBELOWZERO in responseErrorMsg
-
-    # Test successful vehicle creation cases
-    response = client.post('/Users/1/New-Vehicle', data={
-        'nickname': '', 'year': '2000', 'make': 'make', 'model': 'blah', 'miles': ''
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_conf.html'
-    assert response.context.get('vehicle')
-
-    response = client.post('/Users/1/New-Vehicle', data={
-        'nickname': 'nickname', 'year': '2000', 'make': 'make', 'model': 'blah', 'miles': '1000'
-    })
-    assert response.status_code == 200
-    assert response.template.name == 'new_vehicle_conf.html'
-    vehicle = response.context.get('vehicle')
-    assert vehicle
-    assert vehicle['displayName'] == 'nickname'
-    assert vehicle['miles'] == '1000'
-    
-
-def test_UpdateODOUIPOST(client):
-    buildSampleDB()
-
-    def getVehicleMiles(vehicleID):
-        """Get current miles from DB for verification."""
-        res = main.querySQL(stmt='''
-            SELECT miles FROM vehicles WHERE vehicleID = %s
-        ''', val=(vehicleID,))
-        return float(res.queryResultValues[0][0]) if res.queryResultValues and res.queryResultValues[0][0] else None
-
-    # Invalid vehicle ID should return 404
-    assert client.post('/Vehicles/0/Update-Odometer', data={'miles': '50000'}).status_code == 404
-    assert client.post('/Vehicles/99999/Update-Odometer', data={'miles': '50000'}).status_code == 404
-    assert client.post('/Vehicles/blah/Update-Odometer', data={'miles': '50000'}).status_code == 404
-
-    # Blank miles should show error
-    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': ''})
-    assert response.status_code == 200
-    assert response.template.name == 'update_odo_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='miles') in responseErrorMsg
-
-    # Non-numeric miles should show error
-    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': 'notanumber'})
-    assert response.status_code == 200
-    assert response.template.name == 'update_odo_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.ODONOTANUMBER in responseErrorMsg
-
-    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '123abc'})
-    assert response.status_code == 200
-    assert response.template.name == 'update_odo_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.ODONOTANUMBER in responseErrorMsg
-
-    # Decreasing odometer should show error (vehicle 1 has 110000 miles)
-    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '50000'})
-    assert response.status_code == 200
-    assert response.template.name == 'update_odo_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.ODODECREASING in responseErrorMsg
-
-    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '0'})
-    assert response.status_code == 200
-    assert response.template.name == 'update_odo_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.ODODECREASING in responseErrorMsg
-
-    # Good inputs should succeed
-    # Vehicle 1 has 110000 miles, so we need to go higher
-    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '115000'})
-    assert response.status_code == 200
-    assert response.template.name == 'update_odo_confirmation.html'
-    assert response.context.get('vehicle')
-    assert getVehicleMiles(1) == 115000.0
-
-    # Now it's at 115000, go higher again
-    response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '115500.5'})
-    assert response.status_code == 200
-    assert response.template.name == 'update_odo_confirmation.html'
-    assert getVehicleMiles(1) == 115500.5
-
-    # Vehicle 3 has only 10 miles
-    response = client.post('/Vehicles/3/Update-Odometer', data={'miles': '100'})
-    assert response.status_code == 200
-    assert response.template.name == 'update_odo_confirmation.html'
-    assert getVehicleMiles(3) == 100.0
+        mock_handler.assert_called_once_with('myuser', '+15551234567')
 
 
-def test_newServiceUIPOST(client):
-    buildSampleDB()
+class TestNewVehicleUIPost:
 
-    def checkServiceCreated(vehicleID, description):
-        """Check that service exists in DB."""
-        res = main.querySQL(stmt='''
-            SELECT itemID FROM serviceSchedule
-            WHERE vehicleID = %s AND description = %s
-        ''', val=(vehicleID, description))
-        return bool(res.queryResultValues)
+    def test_returns404WhenUserIdInvalid(self, client, mocker):
+        mocker.patch('main.validateUserIdInURL', side_effect=ValueError('invalid'))
 
-    # Invalid vehicle ID should return 404
-    assert client.post('/Vehicles/0/New-Service', data={'description': 'test', 'interval': '5000', 'milesLastDone': '0'}).status_code == 404
-    assert client.post('/Vehicles/blah/New-Service', data={'description': 'test', 'interval': '5000', 'milesLastDone': '0'}).status_code == 404
+        response = client.post('/Users/blah/New-Vehicle', data={
+            'nickname': '', 'year': '2000', 'make': 'Toyota', 'model': 'Camry', 'miles': ''
+        })
 
-    # Missing/blank description should show error
-    response = client.post('/Vehicles/1/New-Service', data={'description': '', 'interval': '5000', 'milesLastDone': '0'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='description') in responseErrorMsg
+        assert response.status_code == 404
 
-    # Missing/blank interval should show error
-    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '', 'milesLastDone': '0'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='interval') in responseErrorMsg
+    def test_returns404WhenUserNotInDB(self, client, mocker):
+        mocker.patch('main.validateUserIdInURL', side_effect=main.NotInDatabaseError('not found'))
 
-    # Non-numeric interval should show error
-    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': 'notanumber', 'milesLastDone': '0'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.NOTANUMBER.format(what='interval') in responseErrorMsg
+        response = client.post('/Users/999/New-Vehicle', data={
+            'nickname': '', 'year': '2000', 'make': 'Toyota', 'model': 'Camry', 'miles': ''
+        })
 
-    # Zero interval should show error
-    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '0', 'milesLastDone': '0'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.NOTANUMBER.format(what='interval') in responseErrorMsg
+        assert response.status_code == 404
 
-    # Negative interval should show error
-    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '-100', 'milesLastDone': '0'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.NOTANUMBER.format(what='interval') in responseErrorMsg
+    def test_rendersConfirmationTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.validateUserIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'testuser')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleNewVehiclePOST', return_value={
+            'id': 10, 'displayName': 'Test Car', 'miles': '50000'
+        })
 
-    # Non-numeric milesLastDone should show error
-    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '5000', 'milesLastDone': 'notanumber'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.NOTANUMBER.format(what='Miles Last Done') in responseErrorMsg
+        response = client.post('/Users/1/New-Vehicle', data={
+            'nickname': 'Test', 'year': '2020', 'make': 'Toyota', 'model': 'Camry', 'miles': '50000'
+        })
 
-    # Negative milesLastDone should show error
-    response = client.post('/Vehicles/1/New-Service', data={'description': 'test service', 'interval': '5000', 'milesLastDone': '-100'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.BELOWZERO.format(what='milesLastDone') in responseErrorMsg
+        assert response.status_code == 200
+        assert response.template.name == 'new_vehicle_conf.html'
 
-    # Good inputs should succeed
-    response = client.post('/Vehicles/1/New-Service', data={'description': 'New Test Service', 'interval': '5000', 'milesLastDone': '100000'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_submitted.html'
-    newService = response.context.get('newService')
-    assert newService
-    assert newService.get('description') == 'New Test Service'
-    assert checkServiceCreated(1, 'New Test Service')
+    def test_passesVehicleInfoToTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.validateUserIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'testuser')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleNewVehiclePOST', return_value={
+            'id': 10, 'displayName': 'My Car', 'miles': '25000'
+        })
 
-    response = client.post('/Vehicles/1/New-Service', data={'description': 'Another Service', 'interval': '10000', 'milesLastDone': ''})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_submitted.html'
-    assert checkServiceCreated(1, 'Another Service')
+        response = client.post('/Users/1/New-Vehicle', data={
+            'nickname': 'My Car', 'year': '2020', 'make': 'Honda', 'model': 'Civic', 'miles': '25000'
+        })
 
-    response = client.post('/Vehicles/2/New-Service', data={'description': 'Service for veh 2', 'interval': '3000', 'milesLastDone': '50'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_submitted.html'
-    assert checkServiceCreated(2, 'Service for veh 2')
+        assert response.context['vehicle']['id'] == 10
+        assert response.context['vehicle']['displayName'] == 'My Car'
 
-    # Duplicate description for same vehicle should show error
-    response = client.post('/Vehicles/1/New-Service', data={'description': 'New Test Service', 'interval': '5000', 'milesLastDone': '0'})
-    assert response.status_code == 200
-    assert response.template.name == 'new_service_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.ILLEGALDUPLICATESERVICE.format(desc='New Test Service') in responseErrorMsg
+    def test_rendersFormTemplateOnFormInputError(self, client, mocker):
+        mocker.patch('main.validateUserIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'testuser')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleNewVehiclePOST', side_effect=main.FormInputError('year is blank'))
+
+        response = client.post('/Users/1/New-Vehicle', data={
+            'nickname': '', 'year': '', 'make': 'Toyota', 'model': 'Camry', 'miles': ''
+        })
+
+        assert response.status_code == 200
+        assert response.template.name == 'new_vehicle_form.html'
+
+    def test_passesErrorMessageOnFormInputError(self, client, mocker):
+        mocker.patch('main.validateUserIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'testuser')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleNewVehiclePOST', side_effect=main.FormInputError('make is required'))
+
+        response = client.post('/Users/1/New-Vehicle', data={
+            'nickname': '', 'year': '2020', 'make': '', 'model': 'Camry', 'miles': ''
+        })
+
+        assert response.context.get('errorMessage') == 'make is required'
+
+    def test_returns400OnUnexpectedException(self, client, mocker):
+        mocker.patch('main.validateUserIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'testuser')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleNewVehiclePOST', side_effect=Exception('unexpected'))
+
+        response = client.post('/Users/1/New-Vehicle', data={
+            'nickname': '', 'year': '2020', 'make': 'Toyota', 'model': 'Camry', 'miles': ''
+        })
+
+        assert response.status_code == 400
+
+    def test_callsHandlerWithCorrectParams(self, client, mocker):
+        mocker.patch('main.validateUserIdInURL', return_value=5)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(5, 'testuser')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mock_handler = mocker.patch('main.handleNewVehiclePOST', return_value={
+            'id': 1, 'displayName': 'Test', 'miles': ''
+        })
+
+        client.post('/Users/5/New-Vehicle', data={
+            'nickname': 'MyNick', 'year': '2015', 'make': 'Ford', 'model': 'Focus', 'miles': '80000'
+        })
+
+        mock_handler.assert_called_once_with(5, 'MyNick', '2015', 'Ford', 'Focus', '80000')
 
 
-def test_UpdateServiceDoneUIPOST(client):
-    buildSampleDB()
+class TestUpdateOdoUIPost:
 
-    def getServiceFlag(itemID):
-        """Get service due flag from DB."""
-        res = main.querySQL(stmt='''
-            SELECT servDueFlag FROM serviceSchedule WHERE itemID = %s
-        ''', val=(itemID,))
-        return res.queryResultValues[0][0] if res.queryResultValues else None
+    def test_returns404WhenVehicleIdInvalid(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', side_effect=ValueError('invalid'))
 
-    # Invalid service item ID should return 404
-    assert client.post('/Service/0/Update-Service-Done', data={'miles': '100000'}).status_code == 404
-    assert client.post('/Service/99999/Update-Service-Done', data={'miles': '100000'}).status_code == 404
-    assert client.post('/Service/blah/Update-Service-Done', data={'miles': '100000'}).status_code == 404
+        response = client.post('/Vehicles/blah/Update-Odometer', data={'miles': '50000'})
 
-    # Blank miles should show error
-    response = client.post('/Service/1/Update-Service-Done', data={'miles': ''})
-    assert response.status_code == 200
-    assert response.template.name == 'service_done_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.FORMFIELDBLANK.format(field='miles') in responseErrorMsg
+        assert response.status_code == 404
 
-    # Non-numeric miles should show error
-    response = client.post('/Service/1/Update-Service-Done', data={'miles': 'notanumber'})
-    assert response.status_code == 200
-    assert response.template.name == 'service_done_form.html'
-    responseErrorMsg = response.context.get('errorMessage')
-    assert responseErrorMsg
-    assert main.ODONOTANUMBER in responseErrorMsg
+    def test_returns404WhenVehicleNotInDB(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', side_effect=main.NotInDatabaseError('not found'))
 
-    # Good inputs should succeed
-    # Service item 1 is for vehicle 1 which has 110000 miles
-    response = client.post('/Service/1/Update-Service-Done', data={'miles': '112000'})
-    assert response.status_code == 200
-    assert response.template.name == 'service_done_confirmation.html'
-    serviceItem = response.context.get('serviceItem')
-    assert serviceItem
-    assert getServiceFlag(1) == 0
+        response = client.post('/Vehicles/999/Update-Odometer', data={'miles': '50000'})
 
-    # Service item 6 is for vehicle 3 which has only 10 miles
-    response = client.post('/Service/6/Update-Service-Done', data={'miles': '15'})
-    assert response.status_code == 200
-    assert response.template.name == 'service_done_confirmation.html'
-    assert getServiceFlag(6) == 0
+        assert response.status_code == 404
+
+    def test_rendersConfirmationTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'Test Car', 50000)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateOdoPOST', return_value='55000')
+
+        response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '55000'})
+
+        assert response.status_code == 200
+        assert response.template.name == 'update_odo_confirmation.html'
+
+    def test_passesVehicleInfoToTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'My Car', 50000)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateOdoPOST', return_value='60000')
+
+        response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '60000'})
+
+        assert response.context['vehicle']['miles'] == '60000'
+
+    def test_rendersFormTemplateOnFormInputError(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'Test Car', 50000)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateOdoPOST', side_effect=main.FormInputError('miles is blank'))
+
+        response = client.post('/Vehicles/1/Update-Odometer', data={'miles': ''})
+
+        assert response.status_code == 200
+        assert response.template.name == 'update_odo_form.html'
+
+    def test_passesErrorMessageOnFormInputError(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'Test Car', 50000)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateOdoPOST', side_effect=main.FormInputError('odo decreasing'))
+
+        response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '1000'})
+
+        assert response.context.get('errorMessage') == 'odo decreasing'
+
+    def test_returns400OnUnexpectedException(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 'Test Car', 50000)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateOdoPOST', side_effect=Exception('unexpected'))
+
+        response = client.post('/Vehicles/1/Update-Odometer', data={'miles': '55000'})
+
+        assert response.status_code == 400
+
+    def test_callsHandlerWithCorrectParams(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=7)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(7, 'Test Car', 50000)]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mock_handler = mocker.patch('main.handleUpdateOdoPOST', return_value='75000')
+
+        client.post('/Vehicles/7/Update-Odometer', data={'miles': '75000'})
+
+        mock_handler.assert_called_once_with(7, '75000')
+
+
+class TestNewServiceUIPost:
+
+    def test_returns404WhenVehicleIdInvalid(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', side_effect=ValueError('invalid'))
+
+        response = client.post('/Vehicles/blah/New-Service', data={
+            'description': 'Oil Change', 'interval': '5000', 'milesLastDone': '0'
+        })
+
+        assert response.status_code == 404
+
+    def test_returns404WhenVehicleNotInDB(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', side_effect=main.NotInDatabaseError('not found'))
+
+        response = client.post('/Vehicles/999/New-Service', data={
+            'description': 'Oil Change', 'interval': '5000', 'milesLastDone': '0'
+        })
+
+        assert response.status_code == 404
+
+    def test_rendersConfirmationTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mocker.patch('main.handleNewServicePOST', return_value={
+            'description': 'Oil Change', 'interval': 5000.0
+        })
+
+        response = client.post('/Vehicles/1/New-Service', data={
+            'description': 'Oil Change', 'interval': '5000', 'milesLastDone': '100000'
+        })
+
+        assert response.status_code == 200
+        assert response.template.name == 'new_service_submitted.html'
+
+    def test_passesServiceInfoToTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mocker.patch('main.handleNewServicePOST', return_value={
+            'description': 'Tire Rotation', 'interval': 7500.0
+        })
+
+        response = client.post('/Vehicles/1/New-Service', data={
+            'description': 'Tire Rotation', 'interval': '7500', 'milesLastDone': '50000'
+        })
+
+        assert response.context['newService']['description'] == 'Tire Rotation'
+        assert response.context['newService']['interval'] == 7500.0
+
+    def test_rendersFormTemplateOnFormInputError(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mocker.patch('main.handleNewServicePOST', side_effect=main.FormInputError('description blank'))
+
+        response = client.post('/Vehicles/1/New-Service', data={
+            'description': '', 'interval': '5000', 'milesLastDone': '0'
+        })
+
+        assert response.status_code == 200
+        assert response.template.name == 'new_service_form.html'
+
+    def test_passesErrorMessageOnFormInputError(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mocker.patch('main.handleNewServicePOST', side_effect=main.FormInputError('interval invalid'))
+
+        response = client.post('/Vehicles/1/New-Service', data={
+            'description': 'Oil Change', 'interval': 'bad', 'milesLastDone': '0'
+        })
+
+        assert response.context.get('errorMessage') == 'interval invalid'
+
+    def test_rendersFormTemplateOnDuplicateItemError(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mocker.patch('main.handleNewServicePOST', side_effect=main.DuplicateItemError('already exists'))
+
+        response = client.post('/Vehicles/1/New-Service', data={
+            'description': 'Oil Change', 'interval': '5000', 'milesLastDone': '0'
+        })
+
+        assert response.status_code == 200
+        assert response.template.name == 'new_service_form.html'
+
+    def test_returns400OnUnexpectedException(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=1)
+        mocker.patch('main.handleNewServicePOST', side_effect=Exception('unexpected'))
+
+        response = client.post('/Vehicles/1/New-Service', data={
+            'description': 'Oil Change', 'interval': '5000', 'milesLastDone': '0'
+        })
+
+        assert response.status_code == 400
+
+    def test_callsHandlerWithCorrectParams(self, client, mocker):
+        mocker.patch('main.validateVehIdInURL', return_value=3)
+        mock_handler = mocker.patch('main.handleNewServicePOST', return_value={
+            'description': 'Brakes', 'interval': 30000.0
+        })
+
+        client.post('/Vehicles/3/New-Service', data={
+            'description': 'Brakes', 'interval': '30000', 'milesLastDone': '15000'
+        })
+
+        mock_handler.assert_called_once_with(3, 'Brakes', '30000', '15000')
+
+
+class TestUpdateServiceDoneUIPost:
+
+    def test_returns404WhenItemIdInvalid(self, client, mocker):
+        mocker.patch('main.validateServiceItemIdInUrl', side_effect=ValueError('invalid'))
+
+        response = client.post('/Service/blah/Update-Service-Done', data={'miles': '100000'})
+
+        assert response.status_code == 404
+
+    def test_returns404WhenItemNotInDB(self, client, mocker):
+        mocker.patch('main.validateServiceItemIdInUrl', side_effect=main.NotInDatabaseError('not found'))
+
+        response = client.post('/Service/999/Update-Service-Done', data={'miles': '100000'})
+
+        assert response.status_code == 404
+
+    def test_rendersConfirmationTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 5, 'Oil Change')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateServDonePOST', return_value='112000')
+
+        response = client.post('/Service/1/Update-Service-Done', data={'miles': '112000'})
+
+        assert response.status_code == 200
+        assert response.template.name == 'service_done_confirmation.html'
+
+    def test_passesServiceItemToTemplateOnSuccess(self, client, mocker):
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 5, 'Oil Change')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateServDonePOST', return_value='115000')
+
+        response = client.post('/Service/1/Update-Service-Done', data={'miles': '115000'})
+
+        assert response.context['serviceItem']['milesDoneAt'] == '115000'
+
+    def test_rendersFormTemplateOnFormInputError(self, client, mocker):
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 5, 'Oil Change')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateServDonePOST', side_effect=main.FormInputError('miles blank'))
+
+        response = client.post('/Service/1/Update-Service-Done', data={'miles': ''})
+
+        assert response.status_code == 200
+        assert response.template.name == 'service_done_form.html'
+
+    def test_passesErrorMessageOnFormInputError(self, client, mocker):
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 5, 'Oil Change')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateServDonePOST', side_effect=main.FormInputError('not a number'))
+
+        response = client.post('/Service/1/Update-Service-Done', data={'miles': 'abc'})
+
+        assert response.context.get('errorMessage') == 'not a number'
+
+    def test_returns400OnUnexpectedException(self, client, mocker):
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(1, 5, 'Oil Change')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mocker.patch('main.handleUpdateServDonePOST', side_effect=Exception('unexpected'))
+
+        response = client.post('/Service/1/Update-Service-Done', data={'miles': '100000'})
+
+        assert response.status_code == 400
+
+    def test_callsHandlerWithCorrectParams(self, client, mocker):
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=5)
+        mock_result = mocker.MagicMock()
+        mock_result.queryResultValues = [(5, 2, 'Tire Rotation')]
+        mocker.patch('main.querySQL', return_value=mock_result)
+        mock_handler = mocker.patch('main.handleUpdateServDonePOST', return_value='80000')
+
+        client.post('/Service/5/Update-Service-Done', data={'miles': '80000'})
+
+        mock_handler.assert_called_once_with(5, '80000')
 
 
 class TestGetDateTodayStr:
