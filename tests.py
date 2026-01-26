@@ -1095,21 +1095,21 @@ class TestNewServiceUIPost:
 class TestUpdateServiceDoneUIPost:
 
     def test_returns404WhenItemIdInvalid(self, client, mocker):
-        mocker.patch('main.validateItemIdInURL', side_effect=ValueError('invalid'))
+        mocker.patch('main.validateServiceItemIdInUrl', side_effect=ValueError('invalid'))
 
         response = client.post('/Service/blah/Update-Service-Done', data={'miles': '100000'})
 
         assert response.status_code == 404
 
     def test_returns404WhenItemNotInDB(self, client, mocker):
-        mocker.patch('main.validateItemIdInURL', side_effect=main.NotInDatabaseError('not found'))
+        mocker.patch('main.validateServiceItemIdInUrl', side_effect=main.NotInDatabaseError('not found'))
 
         response = client.post('/Service/999/Update-Service-Done', data={'miles': '100000'})
 
         assert response.status_code == 404
 
     def test_rendersConfirmationTemplateOnSuccess(self, client, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=1)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mock_result = mocker.MagicMock()
         mock_result.queryResultValues = [(1, 5, 'Oil Change')]
         mocker.patch('main.querySQL', return_value=mock_result)
@@ -1121,7 +1121,7 @@ class TestUpdateServiceDoneUIPost:
         assert response.template.name == 'service_done_confirmation.html'
 
     def test_passesServiceItemToTemplateOnSuccess(self, client, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=1)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mock_result = mocker.MagicMock()
         mock_result.queryResultValues = [(1, 5, 'Oil Change')]
         mocker.patch('main.querySQL', return_value=mock_result)
@@ -1132,7 +1132,7 @@ class TestUpdateServiceDoneUIPost:
         assert response.context['serviceItem']['milesDoneAt'] == '115000'
 
     def test_rendersFormTemplateOnFormInputError(self, client, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=1)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mock_result = mocker.MagicMock()
         mock_result.queryResultValues = [(1, 5, 'Oil Change')]
         mocker.patch('main.querySQL', return_value=mock_result)
@@ -1144,7 +1144,7 @@ class TestUpdateServiceDoneUIPost:
         assert response.template.name == 'service_done_form.html'
 
     def test_passesErrorMessageOnFormInputError(self, client, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=1)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mock_result = mocker.MagicMock()
         mock_result.queryResultValues = [(1, 5, 'Oil Change')]
         mocker.patch('main.querySQL', return_value=mock_result)
@@ -1155,7 +1155,7 @@ class TestUpdateServiceDoneUIPost:
         assert response.context.get('errorMessage') == 'not a number'
 
     def test_returns400OnUnexpectedException(self, client, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=1)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=1)
         mock_result = mocker.MagicMock()
         mock_result.queryResultValues = [(1, 5, 'Oil Change')]
         mocker.patch('main.querySQL', return_value=mock_result)
@@ -1166,7 +1166,7 @@ class TestUpdateServiceDoneUIPost:
         assert response.status_code == 400
 
     def test_callsHandlerWithCorrectParams(self, client, mocker):
-        mocker.patch('main.validateItemIdInURL', return_value=5)
+        mocker.patch('main.validateServiceItemIdInUrl', return_value=5)
         mock_result = mocker.MagicMock()
         mock_result.queryResultValues = [(5, 2, 'Tire Rotation')]
         mocker.patch('main.querySQL', return_value=mock_result)
